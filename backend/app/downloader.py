@@ -6,7 +6,8 @@ from typing import Callable
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError, ExtractorError
 
-from . import config
+from . import config, douyin
+from .errors import VideoError
 
 URL_RE = re.compile(r"https?://[^\s<>\"'，。！？、；）)】\]]+")
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
@@ -15,10 +16,6 @@ IGNORED_SUBS = {"danmaku", "live_chat", "comments"}
 NO_DIRECT_EXTRACTORS = {"Youtube"}  # googlevideo links are bound to the server IP
 
 Report = Callable[..., None]
-
-
-class VideoError(Exception):
-    """Error with a user-facing (Chinese) message."""
 
 
 def extract_url(text: str) -> str:
@@ -173,7 +170,10 @@ def summarize(info: dict) -> dict:
 
 
 def parse(text: str) -> dict:
-    return summarize(extract_info(text))
+    url = extract_url(text)
+    if douyin.is_douyin(url):
+        return douyin.parse(url)
+    return summarize(extract_info(url))
 
 
 def _collect_files(outdir: Path, suffixes: tuple[str, ...] | None = None) -> list[Path]:
@@ -189,6 +189,8 @@ def _collect_files(outdir: Path, suffixes: tuple[str, ...] | None = None) -> lis
 def download(text: str, outdir: Path, quality: int | None = None, kind: str = "video", report: Report = lambda **_: None) -> Path:
     """Download a single video/audio into outdir and return the final file path."""
     url = extract_url(text)
+    if douyin.is_douyin(url):
+        return douyin.download(url, outdir, kind, report)
     outdir.mkdir(parents=True, exist_ok=True)
     state = {"finished": 0, "stages": 1}
 
@@ -237,6 +239,8 @@ def download(text: str, outdir: Path, quality: int | None = None, kind: str = "v
 
 def download_subtitle(text: str, outdir: Path, lang: str | None = None) -> tuple[Path, dict]:
     """Download one subtitle track as SRT. Returns (path, info)."""
+    if douyin.is_douyin(extract_url(text)):
+        raise VideoError("抖音作品没有字幕，暂不支持字幕下载与 AI 总结")
     info = extract_info(text)
     lang = lang or choose_subtitle(info)
     if not lang:

@@ -1,4 +1,5 @@
 export const platforms = [
+  { name: '抖音', color: '#fe2c55' },
   { name: 'B站', color: '#fb7299' },
   { name: 'YouTube', color: '#ff0033' },
   { name: 'TikTok', color: '#111827' },
@@ -14,13 +15,14 @@ export const platforms = [
 ]
 
 export const platformTable = [
+  { name: '抖音', video: '原画 · 无水印', audio: true, sub: false, note: '支持分享口令 / v.douyin.com 短链；暂不支持图文' },
   { name: 'B站', video: '最高 1080P', audio: true, sub: true, note: '支持 b23.tv 短链' },
   { name: 'YouTube', video: '最高 8K', audio: true, sub: true, note: '服务器需可访问海外网络' },
   { name: 'TikTok', video: '原画', audio: true, sub: false, note: '' },
   { name: 'Twitter/X', video: '原画', audio: true, sub: false, note: '仅公开推文' },
   { name: '微博', video: '最高 1080P', audio: true, sub: false, note: '' },
   { name: 'Vimeo', video: '最高 4K', audio: true, sub: true, note: '' },
-  { name: '小红书 / 抖音 等', video: '部分支持', audio: true, sub: false, note: '需登录的内容暂不支持' },
+  { name: '小红书 等', video: '部分支持', audio: true, sub: false, note: '需登录的内容暂不支持' },
 ]
 
 export const features = [

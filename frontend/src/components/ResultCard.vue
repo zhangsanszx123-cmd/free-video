@@ -59,7 +59,7 @@ onUnmounted(() => stop?.())
         <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
           <span v-if="info.uploader">UP / 作者：{{ info.uploader }}</span>
           <span v-if="info.view_count">播放 {{ fmt.count(info.view_count) }}</span>
-          <span>{{ qualities.length }} 种清晰度</span>
+          <span v-if="qualities.length">{{ qualities.length }} 种清晰度</span>
           <span v-if="info.subtitles?.length">{{ info.subtitles.length }} 条字幕</span>
         </div>
 
@@ -74,7 +74,7 @@ onUnmounted(() => stop?.())
               <span v-if="q.size" class="ml-1 text-xs font-normal text-slate-400">{{ fmt.size(q.size) }}</span>
               <span v-if="q.pro" class="pro-badge absolute -right-2 -top-2">PRO</span>
             </button>
-            <span v-if="!qualities.length" class="text-sm text-slate-500">默认最佳画质</span>
+            <span v-if="!qualities.length" class="rounded-xl border border-indigo-500 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-700">原画 · 最佳画质</span>
           </div>
         </template>
         <template v-else-if="mode === 'subtitle'">

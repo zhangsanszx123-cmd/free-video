@@ -67,7 +67,7 @@ async function parse() {
         <span class="text-grad">高清视频一键下载</span>
       </h1>
       <p class="mx-auto mt-5 max-w-3xl text-sm leading-relaxed text-slate-600 sm:text-lg">
-        粘贴链接，即可下载 B站、YouTube、TikTok、X、微博等平台的 <b class="text-slate-800">4K 原画视频</b>、
+        粘贴链接，即可下载抖音、B站、YouTube、TikTok、X、微博等平台的 <b class="text-slate-800">4K 原画视频</b>、
         <b class="text-slate-800">MP3 音频</b>与<b class="text-slate-800">字幕</b>；支持批量打包与 AI 视频总结。电脑、手机都能用。
       </p>
 

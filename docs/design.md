@@ -1,10 +1,10 @@
 # FreeVideo 方案设计文档
 
-> 版本：v1.0（与当前代码一致）｜ 需求见 [requirements.md](./requirements.md)
+> 版本：v1.1（与当前代码一致，新增抖音适配）｜ 需求见 [requirements.md](./requirements.md)
 > 扩展功能前请先阅读本文档的「设计原则」与「扩展指南」。
 
 ## 1. 设计原则
-1. **封装而非魔改**：所有解析/下载能力来自 yt-dlp 的 Python API，只做薄封装；不 fork、不改源码，升级 yt-dlp 只需改版本号。
+1. **封装而非魔改**：解析/下载能力来自开源项目的 Python API（通用平台用 yt-dlp，抖音用 f2），只做薄封装；不 fork、不改源码，升级只需改版本号。新平台适配器统一挂在 `downloader.py` 的入口上按域名分流，`tasks.py` / `main.py` / 前端无需改动。
 2. **轻量**：无数据库，内存任务表 + 本地临时目录；单进程单端口部署。
 3. **任务化**：耗时操作（下载、批量、字幕、翻译）统一走 `JobManager` 异步任务 + 前端轮询；只有 AI 总结用 SSE 流式。
 4. **错误对用户友好**：底层异常统一转换为 `VideoError`（中文提示），由接口层返回 400 或写入任务 `error`。
@@ -16,7 +16,9 @@
   │  /api/*  (JSON / SSE)            生产：FastAPI 同端口托管 frontend/dist
   ▼
 FastAPI (app/main.py) ── 路由、参数校验、SSE、文件下发、SPA fallback
-  ├─ downloader.py  ── yt-dlp 薄封装：extract_url / parse / download / download_subtitle / friendly_error
+  ├─ downloader.py  ── 统一入口 + yt-dlp 薄封装：extract_url / parse / download / download_subtitle / friendly_error
+  │    └─ douyin.py ── 抖音域名分流到 f2：fetch_detail / summarize / download（访客 Cookie + httpx 流式下载）
+  ├─ errors.py      ── VideoError（用户可见的中文错误）
   ├─ jobs.py        ── Job 数据类 + JobManager(ThreadPoolExecutor) + 过期清理线程
   ├─ tasks.py       ── 任务体：single_download / batch_download / subtitle_download / translate_subtitle
   ├─ ai.py          ── DeepSeek(OpenAI SDK)：summarize_stream / translate_cues
@@ -24,15 +26,15 @@ FastAPI (app/main.py) ── 路由、参数校验、SSE、文件下发、SPA fa
   └─ config.py      ── 读取 backend/.env
         │
         ▼
-yt-dlp  +  ffmpeg（合并音视频 / 转 MP3 / 字幕转换）      backend/downloads/<job_id>/  (TTL 30 分钟)
+yt-dlp / f2  +  ffmpeg（合并音视频 / 转 MP3 / 字幕转换）      backend/downloads/<job_id>/  (TTL 30 分钟)
 ```
 
 ## 3. 目录结构
 ```
 free-video/
   backend/
-    app/  main.py config.py downloader.py jobs.py tasks.py ai.py subtitles.py
-    tests/  conftest.py test_downloader.py test_api.py test_network.py(-m network)
+    app/  main.py config.py errors.py downloader.py douyin.py jobs.py tasks.py ai.py subtitles.py
+    tests/  conftest.py test_downloader.py test_douyin.py test_api.py test_network.py(-m network)
     requirements.txt  .env.example  pytest.ini
   frontend/
     src/
@@ -61,6 +63,26 @@ free-video/
 | 错误映射 | `friendly_error()` 关键字规则表 → 中文提示；新增平台错误时在此追加规则 |
 
 字幕语言优先级 `SUB_PREFERENCE`：zh-Hans > zh-CN > zh > zh-Hant > zh-TW > ai-zh > en > en-US > en-orig > ja > ko；平台字幕优先于自动字幕；忽略 danmaku/live_chat。
+
+### 4.1.1 抖音适配（douyin.py，基于 f2）
+**为什么不用 yt-dlp**：yt-dlp 的 `DouyinIE` 请求详情接口时需要浏览器验证脚本生成的签名 Cookie（`s_v_web_id`），源码中为 TODO，直接报 `Fresh cookies (not necessarily logged in) are needed`。
+
+**依赖**：`f2` GitHub 开发分支 `v0.0.1.8-pw3`，固定 commit `f6be8c0`（requirements.txt 用 codeload zip 安装，GitHub git 协议在本机网络不可用）。PyPI 版 0.0.1.7（2024-12）签名过时，实测 403。
+
+| 能力 | 实现 |
+|---|---|
+| 分流 | `downloader.parse / download / download_subtitle` 入口先 `douyin.is_douyin(url)`（`douyin.com`、`iesdouyin.com` 及子域，含 `v.douyin.com` 短链） |
+| 作品 ID | 先用正则匹配 `/video/<id>`、`/note/<id>`、`modal_id=<id>`；否则调 f2 `AwemeIdFetcher.get_aweme_id`（跟随短链重定向） |
+| 访客 Cookie | `TokenManager.gen_ttwid()` + `gen_real_msToken()` 拼成 Cookie，进程内缓存 20 分钟（加锁）；**不涉及任何账号** |
+| 详情 | `DouyinHandler(kwargs).fetch_one_video(aweme_id)._to_dict()`，f2 负责 a_bogus 签名；f2 是 async，在线程池里用 `asyncio.run` 调用 |
+| 重试 | 失败时刷新访客 Cookie 重试 1 次；"已删除/私密/链接无法识别"等确定性错误不重试 |
+| 输出 | `summarize()` 转为与 yt-dlp 相同的结构：`qualities=[]`（前端显示"原画·最佳画质"）、`subtitles=[]`、`direct=play_addr[0]`（直链无需 Referer） |
+| 下载 | 每次下载前重新取详情（播放地址会过期），`httpx.stream` 逐块写入并上报进度/速度/ETA，多个播放地址依次回退；超 `MAX_FILESIZE_MB` 拒绝 |
+| MP3 | 下载 MP4 后 `ffmpeg -vn -c:a libmp3lame -b:a 192k` 转码，删除中间 MP4 |
+| 不支持 | 图文作品（`images` 非空）→ `VideoError("暂不支持抖音图文作品")`；字幕/AI → `VideoError("抖音作品没有字幕…")` |
+| 日志 | 调用时把 `f2` logger 调到 WARNING，避免 rich 输出刷屏 |
+
+风险：抖音风控与签名算法会变化，失效时优先升级 f2 commit（同样遵守"发布满 7 天"规则），再跑 `pytest -m network`。
 
 ### 4.2 任务模型（jobs.py）
 `Job` 字段：`id, kind, status(queued|running|processing|done|error), progress, speed, eta, title, thumbnail, message, error, filename, items[], created_at, filepath(不序列化)`；`to_dict()` 额外输出 `ready`。
@@ -128,7 +150,8 @@ free-video/
 ## 6. 测试策略
 - `tests/test_downloader.py`：`FakeYDL` 替身模拟 yt-dlp（含 hooks 与产物写入），覆盖链接提取、清晰度/直链/字幕选择、进度计算、MP3/字幕参数、错误映射、SRT 工具。
 - `tests/test_api.py`：TestClient + monkeypatch 覆盖全部接口、任务成功/失败、批量部分失败与 ZIP、AI 未启用/SSE/翻译、过期清理。
-- `tests/test_network.py`（`-m network`）：真实 B站解析、360P、MP3。
+- `tests/test_douyin.py`：域名识别、summarize、错误映射、刷新 Cookie 重试/确定性错误不重试、播放地址回退与进度、downloader 分流（全部 mock，不联网）。
+- `tests/test_network.py`（`-m network`）：真实 B站解析、360P、MP3；真实抖音解析、MP4（校验 ftyp）、MP3。
 - UI：Edge headless 截图（桌面 1280/1440；手机用 390px iframe 规避窗口最小宽度）。
 
 ## 7. 扩展指南（给后续 AI 的约定）
@@ -140,12 +163,14 @@ free-video/
 | 账号/历史/付费（B2/B3） | 引入 SQLite + 鉴权中间件；额度校验放在创建任务的路由层；前端 `ui.openUpgrade` 已是统一入口 |
 | Cookie（B4） | `base_opts()` 按域名注入 `cookiefile`；同步修改 FAQ/页脚合规文案 |
 | 播放列表（B5） | 去掉 `noplaylist` 并复用 `batch_download` 逻辑处理 entries |
-| 新平台报错文案 | `downloader.friendly_error` 规则表 + 对应单测 |
+| 新平台报错文案 | `downloader.friendly_error` 规则表 + 对应单测（抖音在 `douyin.friendly_error`） |
+| 新平台适配器（yt-dlp 不支持时，如小红书/快手 B10） | 参照 `douyin.py`：提供 `is_xxx / parse / download`，返回与 `summarize()` 相同结构；在 `downloader.parse / download / download_subtitle` 入口加分流；补 mock 单测 + network 测试 |
+| 抖音图集（B9） | `douyin.summarize` 中 `images` 分支返回图片列表 → 新增下载为 ZIP；前端 ResultCard 增加图集展示 |
 | 新页面 | `pages/` + `router.js`（含 `titles`）+ `NavBar.links` |
 | 多实例部署 | 任务表换 Redis、文件放共享存储/对象存储；线程池可换 Celery/RQ |
 
 约定：
-- 保持 yt-dlp 零修改；升级先跑 `pytest -m network`。
+- 保持 yt-dlp / f2 零修改；升级先跑 `pytest -m network`。
 - 新增依赖锁版本，且版本发布已满 7 天。
 - 用户可见文案用中文，错误通过 `VideoError` 抛出。
 - 改动后验证：`pytest`、`npm run build`，必要时截图检查移动端。

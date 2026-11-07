@@ -1,13 +1,13 @@
 # FreeVideo 万能视频下载
 
-基于开源项目 [yt-dlp](https://github.com/yt-dlp/yt-dlp) 的在线视频下载站：粘贴链接即可下载 B站、YouTube、TikTok、X、微博等 1800+ 站点的视频 / MP3 / 字幕，支持批量打包 ZIP、AI 视频总结与双语字幕翻译（DeepSeek）。电脑、手机浏览器均可使用。
+基于开源项目 [yt-dlp](https://github.com/yt-dlp/yt-dlp) 与 [f2](https://github.com/Johnserf-Seed/f2)（抖音）的在线视频下载站：粘贴链接即可下载抖音、B站、YouTube、TikTok、X、微博等 1800+ 站点的视频 / MP3 / 字幕，支持批量打包 ZIP、AI 视频总结与双语字幕翻译（DeepSeek）。电脑、手机浏览器均可使用。
 
 > 仅供个人学习研究。请尊重版权，勿下载、传播未经授权的内容；频繁下载可能触发平台风控。
 
 文档：[需求分析](docs/requirements.md) ｜ [方案设计](docs/design.md)
 
 ## 技术栈
-- 后端：Python 3.12 + FastAPI，直接调用 yt-dlp Python API（不修改其源码），无数据库，内存任务队列 + 临时文件自动清理
+- 后端：Python 3.12 + FastAPI，直接调用 yt-dlp Python API；抖音链接走 f2（开发分支，固定 commit，使用自动生成的匿名访客 Cookie，不登录）。均不修改源码；无数据库，内存任务队列 + 临时文件自动清理
 - 前端：Vue 3 + Vite + Tailwind CSS v4 + vue-router
 - 依赖：本机需安装 **ffmpeg**（合并音视频、转 MP3、转换字幕）
 
@@ -58,11 +58,13 @@ cd ../backend
 ## 测试
 ```bash
 cd backend
-.venv\Scripts\python -m pytest              # 单元测试（mock yt-dlp / openai）
-.venv\Scripts\python -m pytest -m network   # 真实网络冒烟测试（B站）
+.venv\Scripts\python -m pytest              # 单元测试（mock yt-dlp / f2 / openai）
+.venv\Scripts\python -m pytest -m network   # 真实网络冒烟测试（B站 + 抖音）
 ```
 
 ## 已知限制
-- 不使用 Cookie：需登录的内容（如抖音、部分小红书、B站大会员画质）无法下载
+- 不使用账号 Cookie：需登录的内容（如部分小红书、B站大会员画质）无法下载
+- 抖音：仅支持视频（图文作品暂不支持），无字幕所以不支持 AI 总结；平台风控更新可能导致暂时失效，需升级 f2
+- YouTube：部分视频会触发人机验证（出口 IP 被风控），可更换代理节点后重试
 - AI 功能依赖视频字幕，无字幕视频暂不支持（后续可接入 faster-whisper 语音识别）
 - 定价页仅为展示，未接入真实支付

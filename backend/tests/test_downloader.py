@@ -123,7 +123,7 @@ def test_friendly_errors(fake_ydl):
         downloader.parse("https://x.com")
     fake_ydl.raise_error = DownloadError("ERROR: Fresh cookies are needed")
     with pytest.raises(VideoError, match="登录"):
-        downloader.parse("https://douyin.com/x")
+        downloader.parse("https://www.xiaohongshu.com/explore/x")
     fake_ydl.raise_error = DownloadError("ERROR: [BiliBili] 1zz: An extractor error has occurred. (caused by KeyError('bvid')); please report this issue on https://github.com/yt-dlp/yt-dlp/issues")
     with pytest.raises(VideoError, match="链接无效"):
         downloader.parse("https://www.bilibili.com/video/BV1zz")
