@@ -17,6 +17,7 @@ export const api = {
   download: (body) => request('/api/download', { method: 'POST', body: JSON.stringify(body) }),
   batch: (body) => request('/api/batch', { method: 'POST', body: JSON.stringify(body) }),
   subtitles: (body) => request('/api/subtitles', { method: 'POST', body: JSON.stringify(body) }),
+  transcript: (body) => request('/api/transcript', { method: 'POST', body: JSON.stringify(body) }),
   translate: (body) => request('/api/ai/translate', { method: 'POST', body: JSON.stringify(body) }),
   job: (id) => request(`/api/jobs/${id}`),
 }

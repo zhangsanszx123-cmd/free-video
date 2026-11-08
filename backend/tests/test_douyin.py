@@ -27,7 +27,20 @@ def test_summarize():
     assert s["platform"] == "Douyin" and s["title"] == "测试/作品 #话题" and s["uploader"] == "小透明"
     assert s["duration"] == 12.345 and s["qualities"] == [] and s["subtitles"] == []
     assert s["direct"]["url"] == "https://v1.douyinvod.com/a.mp4"
+    assert s["audio_url"] == "https://v1.douyinvod.com/a.mp4"
+    assert s["description"] == "测试/作品 #话题"
+    assert s["tags"] == ["话题"]
+    assert s["images"] == ["https://p3.douyinpic.com/c.jpeg"]
     assert s["url"] == "https://www.douyin.com/video/6915675899241450760"
+    s2 = douyin.summarize({**DETAIL, "custom_cover": "https://p3.douyinpic.com/real_cover.jpeg"}, "u")
+    assert s2["thumbnail"] == "https://p3.douyinpic.com/real_cover.jpeg"
+    assert s2["images"] == ["https://p3.douyinpic.com/real_cover.jpeg"]
+    raw = {"aweme_detail": {"video": {
+        "cover": {"uri": "u1", "url_list": ["https://p3.douyinpic.com/cover_330.jpeg"]},
+        "cover_original_scale": {"uri": "u1", "url_list": ["https://p3.douyinpic.com/cover_full.jpeg"]},
+        "origin_cover": {"uri": "u2", "url_list": ["https://p3.douyinpic.com/frame.jpeg"]},
+    }}}
+    assert douyin._extract_cover(raw) == "https://p3.douyinpic.com/cover_full.jpeg"
     with pytest.raises(VideoError, match="图文"):
         douyin.summarize({**DETAIL, "images": ["https://img"]}, "u")
     with pytest.raises(VideoError, match="视频地址"):

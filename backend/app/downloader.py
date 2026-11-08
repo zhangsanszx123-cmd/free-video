@@ -11,6 +11,9 @@ from .errors import VideoError
 
 URL_RE = re.compile(r"https?://[^\s<>\"'，。！？、；）)】\]]+")
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+TOPIC_RE = re.compile(r"#([^#\n]+?)\[话题\]#")
+HASHTAG_RE = re.compile(r"(?:^|\s)#([^\s#]+)")
+TRAIL_PUNCT_RE = re.compile(r"[.,!?;:，。！？；：、…]+$")
 SUB_PREFERENCE = ["zh-Hans", "zh-CN", "zh", "zh-Hant", "zh-TW", "ai-zh", "en", "en-US", "en-orig", "ja", "ko"]
 IGNORED_SUBS = {"danmaku", "live_chat", "comments"}
 NO_DIRECT_EXTRACTORS = {"Youtube"}  # googlevideo links are bound to the server IP
@@ -121,6 +124,50 @@ def _pick_direct(info: dict, formats: list) -> dict | None:
     return {"url": f["url"], "height": f.get("height"), "ext": f["ext"]}
 
 
+def _pick_audio(info: dict, formats: list) -> str | None:
+    if info.get("extractor_key") in NO_DIRECT_EXTRACTORS:
+        return None
+    audio_only = []
+    for f in formats:
+        headers = {k.lower() for k in (f.get("http_headers") or {})}
+        if (
+            f.get("url")
+            and f.get("protocol") in ("http", "https")
+            and not _has(f, "vcodec")
+            and _has(f, "acodec")
+            and not f.get("cookies")
+            and not headers & {"referer", "cookie"}
+        ):
+            audio_only.append(f)
+    if audio_only:
+        best = max(audio_only, key=lambda x: (x.get("abr") or 0, x.get("tbr") or 0))
+        return best["url"]
+    direct = _pick_direct(info, formats)
+    return direct["url"] if direct else None
+
+
+def extract_hashtags(*texts: str | None, extra_tags: list[str] | None = None) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def add(raw: str):
+        tag = TRAIL_PUNCT_RE.sub("", (raw or "").strip()).lstrip("#").strip()
+        if tag and tag not in seen:
+            seen.add(tag)
+            out.append(tag)
+
+    for text in texts:
+        if not text:
+            continue
+        cleaned = TOPIC_RE.sub(lambda m: (add(m.group(1)), " ")[1], text)
+        for m in HASHTAG_RE.finditer(cleaned):
+            add(m.group(1))
+    for t in extra_tags or []:
+        if isinstance(t, str):
+            add(t)
+    return out
+
+
 def list_subtitles(info: dict) -> list[dict]:
     result = [
         {"lang": k, "name": (v[0].get("name") if v else None) or k, "auto": False}
@@ -150,11 +197,16 @@ def summarize(info: dict) -> dict:
     formats = info.get("formats") or [info]
     duration = info.get("duration")
     heights = sorted({f["height"] for f in formats if f.get("height") and _has(f, "vcodec")}, reverse=True)
+    thumb = info.get("thumbnail")
+    desc = (info.get("description") or "").strip() or None
     return {
         "url": info.get("webpage_url") or info.get("original_url"),
         "id": info.get("id"),
         "title": info.get("title") or "未命名视频",
-        "thumbnail": info.get("thumbnail"),
+        "description": desc,
+        "tags": extract_hashtags(info.get("title"), desc, extra_tags=info.get("tags")),
+        "thumbnail": thumb,
+        "images": [thumb] if thumb else [],
         "duration": duration,
         "uploader": info.get("uploader") or info.get("channel"),
         "platform": info.get("extractor_key") or info.get("extractor"),
@@ -164,6 +216,7 @@ def summarize(info: dict) -> dict:
             for h in heights
         ],
         "has_audio": not all(f.get("acodec") == "none" for f in formats),
+        "audio_url": _pick_audio(info, formats),
         "subtitles": list_subtitles(info),
         "direct": _pick_direct(info, formats),
     }

@@ -7,12 +7,6 @@ import FaqList from '../components/FaqList.vue'
 import { api } from '../api.js'
 import { faqs, features, platformTable, platforms, scenarios, steps } from '../data.js'
 
-const modes = [
-  { value: 'video', label: '视频 MP4', icon: 'video' },
-  { value: 'audio', label: '音频 MP3', icon: 'music' },
-  { value: 'subtitle', label: '字幕 SRT', icon: 'captions' },
-]
-const mode = ref('video')
 const url = ref('')
 const loading = ref(false)
 const error = ref('')
@@ -32,7 +26,6 @@ const route = useRoute()
 onMounted(() => {
   if (route.query.url) {
     url.value = String(route.query.url)
-    if (['video', 'audio', 'subtitle'].includes(route.query.mode)) mode.value = route.query.mode
     parse()
   }
 })
@@ -74,13 +67,11 @@ async function parse() {
       <!-- Input shell -->
       <div class="input-shell mx-auto mt-8 max-w-4xl rounded-[1.75rem] p-3 text-left sm:p-5">
         <div class="mb-3 flex flex-wrap items-center justify-between gap-2 px-1">
-          <div class="inline-flex rounded-xl bg-slate-100/90 p-1">
-            <button v-for="m in modes" :key="m.value"
-              class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition sm:px-3 sm:text-sm"
-              :class="mode === m.value ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'"
-              @click="mode = m.value">
-              <Icon :name="m.icon" :size="15" /> {{ m.label }}
-            </button>
+          <div class="inline-flex items-center gap-2 text-xs font-semibold text-slate-500">
+            <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-950 text-white shadow-sm">
+              <Icon name="link" :size="15" />
+            </span>
+            <span>粘贴视频/图片分享链接（支持抖音、B站、YouTube 等 1800+ 平台）</span>
           </div>
           <div class="hidden items-center gap-1.5 text-xs text-slate-400 sm:flex">
             <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400"></span> 服务运行中 · 文件 30 分钟后自动删除
@@ -108,12 +99,7 @@ async function parse() {
         <p v-if="error" class="mt-3 flex items-start gap-2 rounded-xl bg-rose-50 px-3 py-2.5 text-sm text-rose-600">
           <Icon name="alert" :size="16" class="mt-0.5 shrink-0" /> {{ error }}
         </p>
-        <div v-if="loading" class="mt-4 animate-pulse rounded-3xl border border-slate-100 bg-white/70 p-5">
-          <div class="flex gap-4"><div class="aspect-video w-40 rounded-xl bg-slate-200"></div>
-            <div class="flex-1 space-y-3"><div class="h-4 w-3/4 rounded bg-slate-200"></div><div class="h-3 w-1/2 rounded bg-slate-200"></div><div class="h-8 w-2/3 rounded bg-slate-200"></div></div></div>
-        </div>
-        <ResultCard v-if="info" :info="info" :mode="mode" class="mt-4" />
-        <RouterLink v-if="!info" to="/batch"
+        <RouterLink to="/batch"
           class="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-indigo-100 bg-gradient-to-r from-blue-50 via-indigo-50 to-violet-50 px-4 py-3 transition hover:border-indigo-200 hover:shadow-md">
           <span class="flex items-center gap-3">
             <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 via-indigo-500 to-violet-600 text-white shadow-sm"><Icon name="layers" :size="18" /></span>
@@ -133,6 +119,10 @@ async function parse() {
         </span>
         <span class="text-xs text-slate-400">等 1800+ 站点</span>
       </div>
+    </div>
+
+    <div v-if="loading || info" class="relative mx-auto mt-6 max-w-6xl px-3 text-left sm:mt-8 sm:px-4 md:mt-12">
+      <ResultCard :info="info" :loading="loading" />
     </div>
   </section>
 

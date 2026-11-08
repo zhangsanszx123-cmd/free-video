@@ -82,6 +82,27 @@ def test_subtitle_job(client, monkeypatch):
     assert data["filename"] == "t.en.srt" and data["title"] == "T"
 
 
+def test_transcript_endpoint(client, monkeypatch):
+    def fake_sub(text, outdir, lang=None):
+        outdir.mkdir(parents=True, exist_ok=True)
+        p = outdir / "t.srt"
+        p.write_text("1\n00:00:01,000 --> 00:00:02,000\n第一句台词\n\n2\n00:00:02,500 --> 00:00:04,000\n第二句台词\n", encoding="utf-8")
+        return p, {"title": "T"}
+    monkeypatch.setattr(downloader, "download_subtitle", fake_sub)
+    r = client.post("/api/transcript", json={"url": "https://b23.tv/x"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["cues"] == 2
+    assert "第一句台词" in body["text"] and "第二句台词" in body["text"]
+    assert "[00:00:01]" in body["timed_text"]
+
+    def no_sub(text, outdir, lang=None):
+        raise VideoError("该视频没有可用字幕")
+    monkeypatch.setattr(downloader, "download_subtitle", no_sub)
+    r2 = client.post("/api/transcript", json={"url": "https://b23.tv/x"})
+    assert r2.status_code == 400 and "没有可用字幕" in r2.json()["detail"]
+
+
 def test_ai_disabled(client, monkeypatch):
     monkeypatch.setattr(config, "DEEPSEEK_API_KEY", None)
     assert client.post("/api/ai/summary", json={"url": "https://b23.tv/x"}).status_code == 503

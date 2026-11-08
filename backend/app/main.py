@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from . import ai, config, downloader, tasks
 from .downloader import VideoError
 from .jobs import JobManager
-from .subtitles import to_plain_text
+from .subtitles import parse_srt, to_plain_text
 
 logging.basicConfig(level=logging.INFO)
 manager = JobManager()
@@ -95,6 +95,24 @@ def subtitles(req: SubtitleReq):
     except VideoError as e:
         _bad_request(e)
     return manager.submit("subtitle", tasks.subtitle_download(url, req.lang)).to_dict()
+
+
+@app.post("/api/transcript")
+def transcript(req: SubtitleReq):
+    try:
+        url = downloader.extract_url(req.url)
+        with tempfile.TemporaryDirectory(dir=config.DOWNLOAD_DIR) as tmp:
+            path, _ = downloader.download_subtitle(url, Path(tmp), req.lang)
+            cues = parse_srt(path.read_text(encoding="utf-8", errors="ignore"))
+        if not cues:
+            raise VideoError("字幕内容为空")
+        return {
+            "text": " ".join(c.text for c in cues),
+            "timed_text": to_plain_text(cues, with_time=True),
+            "cues": len(cues),
+        }
+    except VideoError as e:
+        _bad_request(e)
 
 
 @app.post("/api/ai/translate")

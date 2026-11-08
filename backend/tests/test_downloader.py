@@ -7,7 +7,9 @@ from app.subtitles import parse_srt, to_plain_text, to_srt
 
 INFO = {
     "id": "BV1xx",
-    "title": "测试视频",
+    "title": "测试视频 #科技 #AI",
+    "description": "这是视频简介正文 #深度学习",
+    "tags": ["Python", "科技"],
     "webpage_url": "https://www.bilibili.com/video/BV1xx",
     "extractor_key": "BiliBili",
     "duration": 100,
@@ -39,6 +41,10 @@ def test_summarize_qualities_direct_and_subs():
     assert s["qualities"][0]["pro"] and s["qualities"][0]["size"] == 5_000_000
     assert s["qualities"][1]["size"] == 1000 * 125 * 100
     assert s["direct"]["url"] == "direct-360"  # 480 needs Referer -> skipped
+    assert s["audio_url"] == "u-a"
+    assert s["description"] == "这是视频简介正文 #深度学习"
+    assert s["tags"] == ["科技", "AI", "深度学习", "Python"]
+    assert s["images"] == ["https://img/x.jpg"]
     assert s["has_audio"]
     langs = {x["lang"]: x["auto"] for x in s["subtitles"]}
     assert langs == {"zh-CN": False, "en": True}
@@ -83,7 +89,7 @@ class FakeYDL:
             hook({"status": "started", "postprocessor": "Merger"})
         from pathlib import Path
         ext = "srt" if self.opts.get("writesubtitles") else ("mp3" if "postprocessors" in self.opts else "mp4")
-        Path(outtmpl.replace("%(title).80B [%(id)s].%(ext)s", f"测试视频 [BV1xx].{ext}")).write_bytes(b"x" * 10)
+        Path(outtmpl.replace("%(title).80B [%(id)s].%(ext)s", f"测试视频 #科技 #AI [BV1xx].{ext}")).write_bytes(b"x" * 10)
         return info
 
 
@@ -97,7 +103,7 @@ def fake_ydl(monkeypatch):
 def test_download_video_progress_and_format(fake_ydl, tmp_path):
     updates = []
     path = downloader.download("https://b23.tv/x", tmp_path / "j", 720, "video", report=lambda **f: updates.append(f))
-    assert path.name == "测试视频 [BV1xx].mp4"
+    assert path.name == "测试视频 #科技 #AI [BV1xx].mp4"
     assert fake_ydl.last_opts["format"].startswith("bv*[height<=720]+ba")
     assert fake_ydl.last_opts["merge_output_format"] == "mp4"
     progress = [u["progress"] for u in updates if "progress" in u]

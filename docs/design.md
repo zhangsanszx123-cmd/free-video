@@ -109,13 +109,14 @@ free-video/
 | POST | `/api/download` | `{url, quality?, kind: video\|audio}` | Job |
 | POST | `/api/batch` | `{urls[], quality?, kind}` | Job（`items[]` 为子任务） |
 | POST | `/api/subtitles` | `{url, lang?}` | Job |
+| POST | `/api/transcript` | `{url, lang?}` | `{text, timed_text, cues}` / 400 `{detail}` |
 | POST | `/api/ai/summary` | `{url}` | SSE：`status` / `meta{title,thumbnail,cues}` / `delta` / `done` / `error`；未启用 503 |
 | POST | `/api/ai/translate` | `{url, target_lang}` | Job；未启用 503 |
 | GET | `/api/jobs/{id}` | – | Job / 404 |
 | GET | `/api/jobs/{id}/file` | – | 文件（RFC5987 中文文件名）/ 404 |
 | GET | `/{path}` | – | dist 静态文件或 `index.html`（SPA fallback，防目录穿越） |
 
-`/api/parse` 响应：`{url, id, title, thumbnail, duration, uploader, platform, view_count, qualities[{height,label,size,pro}], has_audio, subtitles[{lang,name,auto}], direct{url,height,ext}|null}`
+`/api/parse` 响应：`{url, id, title, description, tags[], thumbnail, images[], duration, uploader, platform, view_count, qualities[{height,label,size,pro}], has_audio, audio_url, subtitles[{lang,name,auto}], direct{url,height,ext}|null}`
 
 ### 4.6 配置（backend/.env）
 `DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL, YTDLP_PROXY, MAX_WORKERS=3, FILE_TTL_MINUTES=30, MAX_FILESIZE_MB=1024, MAX_BATCH=20, DOWNLOAD_DIR`
@@ -132,7 +133,7 @@ free-video/
 ### 5.2 关键模块
 - `api.js`：`request`（统一抛出 `detail`）、`pollJob`（轮询至 done/error，返回取消函数）、`streamSSE`（POST + ReadableStream 解析 SSE）、`triggerDownload`、`fmt`（大小/时长/计数）、`extractUrls`。
 - `JobProgress.vue`：通用任务进度条 + 保存按钮，`slot` 可插入子任务列表。所有新任务型功能复用它。
-- `ResultCard.vue`：解析结果、清晰度/字幕选择、发起任务、直链秒下（`window.open`，跨域 download 属性无效）、跳转 AI。
+- `ResultCard.vue`：对齐 AnyToCopy 提取结果布局，分为顶栏（导出 TXT/MD、加入选题、AI 创作）及五大卡片区块：文案内容（标题、正文描述、`#话题` 标签复制、生成爆款）、视频内容（内嵌播放器、清晰度选择、下载视频、复制链接）、音频内容（在线 `<audio>` 播放与 MP3 提取下载）、视频文案（异步获取字幕文稿、纯文本/时间戳切换、复制与下载 SRT）、图片内容（封面/图集网格预览与下载）。
 - `store.js`：全局 `ui.openUpgrade(reason)` 弹出升级弹窗。
 
 ### 5.3 视觉设计系统（style.css，参考 anytocopy.com）

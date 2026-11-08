@@ -27,6 +27,7 @@ HEADERS = {"User-Agent": UA, "Referer": "https://www.douyin.com/"}
 ID_PATTERNS = [re.compile(r"/(?:video|note)/(\d{8,})"), re.compile(r"modal_id=(\d{8,})")]
 COOKIE_TTL = 20 * 60
 SAFE_NAME_RE = re.compile(r'[\\/:*?"<>|\r\n\t]+')
+HASHTAG_RE = re.compile(r"(?:^|\s)#([^\s#，。！？；：、,.!?;:]+)")
 
 _cookie = {"value": None, "at": 0.0}
 _cookie_lock = threading.Lock()
@@ -50,6 +51,21 @@ def _guest_cookie(refresh: bool = False) -> str:
         return _cookie["value"]
 
 
+def _extract_cover(raw: dict | None) -> str | None:
+    video = ((raw or {}).get("aweme_detail") or {}).get("video") or {}
+    cover = video.get("cover") or {}
+    orig_scale = video.get("cover_original_scale") or {}
+    if cover.get("uri") and cover.get("uri") == orig_scale.get("uri"):
+        urls = orig_scale.get("url_list") or []
+        if urls and isinstance(urls[0], str) and urls[0].startswith("http"):
+            return urls[0]
+    for key in ("cover", "optimized_cover", "origin_cover"):
+        urls = (video.get(key) or {}).get("url_list") or []
+        if urls and isinstance(urls[0], str) and urls[0].startswith("http"):
+            return urls[0]
+    return None
+
+
 async def _fetch(url: str, cookie: str) -> dict:
     from f2.apps.douyin.handler import DouyinHandler
     from f2.apps.douyin.utils import AwemeIdFetcher
@@ -59,7 +75,11 @@ async def _fetch(url: str, cookie: str) -> dict:
     if not aweme_id:
         aweme_id = await AwemeIdFetcher.get_aweme_id(url)
     kwargs = {"headers": HEADERS, "proxies": {"http://": None, "https://": None}, "cookie": cookie, "timeout": 15}
-    return (await DouyinHandler(kwargs).fetch_one_video(aweme_id))._to_dict()
+    detail = await DouyinHandler(kwargs).fetch_one_video(aweme_id)
+    data = detail._to_dict()
+    if custom_cover := _extract_cover(detail._to_raw()):
+        data["custom_cover"] = custom_cover
+    return data
 
 
 def friendly_error(err: Exception) -> str:
@@ -101,17 +121,26 @@ def summarize(d: dict, url: str) -> dict:
     if not plays:
         raise VideoError("未获取到抖音视频地址，请稍后重试")
     duration = d.get("duration")
+    raw_desc = (d.get("desc_raw") or d.get("desc") or "").strip()
+    cover = d.get("custom_cover") or d.get("cover")
+    music = d.get("music_play_url")
+    audio_url = music if isinstance(music, str) and music.startswith("http") else plays[0]
+    tags = list(dict.fromkeys(m.group(1) for m in HASHTAG_RE.finditer(raw_desc)))
     return {
         "url": f"https://www.douyin.com/video/{d.get('aweme_id')}" if d.get("aweme_id") else url,
         "id": d.get("aweme_id"),
-        "title": (d.get("desc_raw") or d.get("desc") or "").strip() or f"抖音作品 {d.get('aweme_id')}",
-        "thumbnail": d.get("cover"),
+        "title": raw_desc or f"抖音作品 {d.get('aweme_id')}",
+        "description": raw_desc or None,
+        "tags": tags,
+        "thumbnail": cover,
+        "images": [cover] if cover else [],
         "duration": duration / 1000 if duration else None,
         "uploader": d.get("nickname_raw") or d.get("nickname"),
         "platform": "Douyin",
         "view_count": None,
         "qualities": [],
         "has_audio": True,
+        "audio_url": audio_url,
         "subtitles": [],
         "direct": {"url": plays[0], "height": None, "ext": "mp4"},
     }
