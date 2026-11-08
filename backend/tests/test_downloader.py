@@ -111,6 +111,28 @@ def test_download_video_progress_and_format(fake_ydl, tmp_path):
     assert any(u.get("status") == "processing" for u in updates)
 
 
+def test_metadata_explicitly_requests_subtitles(fake_ydl):
+    downloader.extract_info("https://www.bilibili.com/video/BV1xx")
+    assert fake_ydl.last_opts["writesubtitles"] is True
+    assert fake_ydl.last_opts["writeautomaticsub"] is True
+    assert fake_ydl.last_opts["skip_download"] is True
+
+
+def test_login_required_subtitle_message(monkeypatch, tmp_path):
+    class LockedYDL(FakeYDL):
+        def extract_info(self, url, download=False):
+            self.opts["logger"].warning("Subtitles are only available when logged in. Use cookies.")
+            return {**INFO, "subtitles": {}, "automatic_captions": {}}
+    monkeypatch.setattr(downloader, "YoutubeDL", LockedYDL)
+    info = downloader.extract_info("https://www.bilibili.com/video/BV1xx")
+    assert info["subtitle_login_required"] is True
+    assert downloader.summarize(info)["subtitle_notice"] == downloader.SUBTITLE_LOGIN_MESSAGE
+    assert downloader.summarize(INFO)["subtitle_notice"] is None
+    from app.errors import NoSubtitles
+    with pytest.raises(NoSubtitles, match="需要登录 B 站"):
+        downloader.download_subtitle("https://www.bilibili.com/video/BV1xx", tmp_path)
+
+
 def test_download_audio_mp3(fake_ydl, tmp_path):
     path = downloader.download("https://b23.tv/x", tmp_path / "j", None, "audio")
     assert path.suffix == ".mp3"

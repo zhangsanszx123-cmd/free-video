@@ -1,7 +1,9 @@
 # FreeVideo 方案设计文档
 
-> 版本：v1.1（与当前代码一致，新增抖音适配）｜ 需求见 [requirements.md](./requirements.md)
+> 版本：v1.2（新增字幕优先的云端转写）｜ 需求见 [requirements.md](./requirements.md)
 > 扩展功能前请先阅读本文档的「设计原则」与「扩展指南」。
+
+> 视频转文字方案已批准并实现；后续用户明确只提供百炼 Key，已批准切换默认到 paraformer-realtime-v2。详见[开发方案](./video-to-text-plan.md)、[配置与验收](./video-to-text-setup.md)，新增架构见本文第 8 节；真实云端识别效果待填写 Key 后联调。
 
 ## 1. 设计原则
 1. **封装而非魔改**：解析/下载能力来自开源项目的 Python API（通用平台用 yt-dlp，抖音用 f2），只做薄封装；不 fork、不改源码，升级只需改版本号。新平台适配器统一挂在 `downloader.py` 的入口上按域名分流，`tasks.py` / `main.py` / 前端无需改动。
@@ -48,6 +50,8 @@ free-video/
 
 ## 4. 后端设计
 ### 4.1 yt-dlp 封装要点（downloader.py）
+
+元信息 `extract_info(download=False)` 显式设置 `writesubtitles/writeautomaticsub`，避免 B 站提取器跳过 `_get_subtitles`。薄包装的诊断 logger 识别锁定版本的登录字幕警告，标记内部 `subtitle_login_required`；解析结果的 `subtitle_notice` 将具体原因传给前端，字幕列表为空时优先显示该原因，不被通用提示覆盖。字幕提取接口返回相同原因。网络错误仍作为错误，不改第三方源码、不读取账号 Cookie。样本 BV1mAAmzqEfP 的 view 接口登记中文轨道，匿名 player 接口返回 `need_login_subtitle=true` 与空列表，不能把它描述为“视频没有字幕”。
 | 能力 | 实现 |
 |---|---|
 | 通用参数 | `base_opts()`：quiet、`noplaylist`、超时/重试、`windowsfilenames`、可选 `proxy`(YTDLP_PROXY) |
@@ -160,7 +164,7 @@ free-video/
 |---|---|
 | 新的下载类任务 | `tasks.py` 新增 `xxx(...) -> run(job) -> Path` → `main.py` 加路由 `manager.submit(kind, fn)` → 前端 `api.js` 加方法 + 复用 `pollJob` / `JobProgress` |
 | 新的 AI 能力 | `ai.py` 加函数（复用 `_client()`，未启用抛 `AIDisabled`）；流式用 `_sse` 模式，非流式走任务 |
-| 无字幕 ASR（B1） | 在 `tasks.fetch_transcript` 中字幕缺失时：下载音频 → whisper 转写为 `Cue` 列表，其余流程不变 |
+| 扩展语音识别服务商 | 在 `asr.py` 实现 Provider 并注册；保持独立转写队列、预算和鉴权，不在 `tasks.fetch_transcript` 隐式触发收费 |
 | 账号/历史/付费（B2/B3） | 引入 SQLite + 鉴权中间件；额度校验放在创建任务的路由层；前端 `ui.openUpgrade` 已是统一入口 |
 | Cookie（B4） | `base_opts()` 按域名注入 `cookiefile`；同步修改 FAQ/页脚合规文案 |
 | 播放列表（B5） | 去掉 `noplaylist` 并复用 `batch_download` 逻辑处理 entries |
@@ -175,3 +179,55 @@ free-video/
 - 新增依赖锁版本，且版本发布已满 7 天。
 - 用户可见文案用中文，错误通过 `VideoError` 抛出。
 - 改动后验证：`pytest`、`npm run build`，必要时截图检查移动端。
+
+## 8. 视频转文字扩展（v1.2）
+
+2026-11-08 当前默认：`asr_flash.py`，注册名 `fun-asr-flash`，模型 `fun-asr-flash-2026-06-15`。经 HTTPS/Base64 发送 MP3/WAV，只需百炼 Key；SSE 按起始时间替换累计快照，校验全文与真实词时间戳。使用 `direct-http` 账本类型，请求前持久化；明确拒绝释放额度，断线或不完整结果保留预占且不重发，重启不把请求标识当作可查询文件任务。
+
+用户确认速度优先。超过 5 分钟先准备全部连续 280 秒 WAV 分段，默认每视频并发两段（可配置 1–4），按原顺序及采样偏移合并。预算按各段向上取整秒数总和预占，按每段最大 usage 向上取整后结算。部分失败保留已完成段费用，禁止整条重试；任何未决段保留整条预占。默认任务并发 2，最多同时 4 个云请求。MP3/PCM/分段 WAV 终态清理。无采样缺口或重叠，边界准确性待人工验收。下述实时方案为此前实现，仍可显式选择，但不再是默认；最新配置见配置指南。
+
+### 8.1 模块与调用链
+
+```text
+ResultCard → TranscriptPanel
+  ├─ /api/transcript：同步、只提取平台字幕，返回来源/语言/text/timed_text/cues/srt
+  └─ 用户点击 → /api/transcription-session（建立签名匿名会话）
+              → POST /api/transcriptions {url, lang?, allow_asr:true}
+              → TranscriptionManager（独立线程池、锁、队列上限、去重）
+                  ├─ 复核可下载字幕，有字幕即结束，ASR 次数 0
+                  └─ downloader 音轨 → ffprobe → ffmpeg 单声道 16k/64kbps MP3
+                      ├─ 默认：PCM → 预算预占 → 加密 WebSocket 直接发送音轨
+                      │   → recognize → 最终句子 + task-finished → Recognition/Cue
+                      └─ 可选文件适配：预算预占 → 私有 OSS 签名 URL → submit/query
+                      → TXT/SRT + 文字预览 → 清理本地音轨（文件适配另清理 OSS 输入）
+```
+
+- `asr.py` 定义 `Provider`、`Recognition` 和注册表；`asr_realtime.py` 使用锁定的 websockets 直接实现官方协议，不引入 DashScope SDK。实时适配器通过 `recognize(pcm,on_submit,cancel)` 返回最终结果，`on_submit` 在启动消息发送前记账。默认只检查百炼 Key 和实时配置，不检查 OSS。
+- 实时发送与接收并发；收到 task-started 后以约 100ms 的 PCM 帧发送，等待 task-finished 才认为完整成功。只保存 sentence_end 的最终句子，词级时间戳可补齐服务端空 end_time；累计 usage 取最大值，不逐句相加。
+- 原 `paraformer-v2` 文件适配器仍用已有 httpx 的 submit/query，仅该可选路径要求 OSS。
+- `storage.py` 薄封装官方 oss2，支持 V4 签名及可选 STS，输入对象前缀为 `freevideo-asr/`，不设公开 ACL。
+- `asr_ledger.py` 进程内锁＋fsync＋原子替换维护用量账本；按实际音频时长预占，优先用云返回 usage 结算，未决预占跨日保留。存储任务 ID 和待清理对象标识，不存正文/签名 URL。
+- `transcription_auth.py` HMAC 签名的匿名 Cookie，HttpOnly、SameSite=Strict，可配置 Secure、稳定密钥、来源白名单；创建按会话/直连 IP 限速。
+- `transcriptions.py` 处理有类型的无字幕/空字幕、下载音轨、实际时长大小校验、云任务、导出与恢复。不同分享 URL 解析成同一规范 URL 后指向同一拥有者的任务，防止重复收费。
+- `NoSubtitles`/`EmptySubtitles` 与网络/鉴权错误分开；后者禁止隐式识别回退。抖音先验证作品可访问，再报告本项目未提取到字幕。
+
+### 8.2 API 与存储
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/transcription-session` | 签发/校验匿名会话，返回 `{ok}`，无敏感内容 |
+| POST | `/api/transcriptions` | `{url,lang?,allow_asr:false}`；明确允许时才在无可用字幕后识别 |
+| GET | `/api/transcriptions/{id}` | 所有者查询 `{id,status,stage,message,error,error_code,retryable,title,result,...}` |
+| GET | `/api/transcriptions/{id}/file?format=txt\|srt` | 所有者导出；文件不接入旧通用下载路由 |
+
+`result={text,timed_text,cues,source,language,srt}`；来源 `platform_subtitle|automatic_subtitle|asr`。未报告识别语言时返回 null，不猜测，也不把字幕选择当成翻译指令。异步错误码区分配置、容量、音轨超限、预算、无人声、云端状态不明等；不暴露云任务 ID、签名 URL 或服务商原始错误。
+
+`ASR_DIR/results/<id>/` 保存结果，与 `DOWNLOAD_DIR` 分开，避免旧清理线程误删。任务活动期间不按结果 TTL 删除；从任务结束起计 30 分钟。私有目录还有 `usage.json` 与开发环境生成的 `session.key`，不能通过静态文件服务提供。HTTP 客户端普通日志禁用，避免记录签名结果地址。
+
+### 8.3 恢复与边界
+
+默认实时路径在本地解码 PCM，压缩源仍受 100MB 限制，解码后最长一小时约 115.2MB，处理结束后清理 MP3/PCM。预算默认按北京实时单价 0.00024 元/秒预占，最终按累计云端用量结算，缺失用量则按预占结算。WebSocket 客户端 UUID 不能通过文件任务接口查询；启动后断线或进程重启只标为 unknown 并保留预占，不重发音轨，本期不提供流式断点恢复。启动前失败可释放预占。
+
+可选旧文件适配器仍每 60 秒核对未决云任务和待删除对象：有云任务 ID 的只查询，不重新提交；不明提交保留预占供人工核对。签名 URL 到期后加 1 小时回收未知对象，OSS 生命周期兜底。重启不恢复任务正文；配置环境变化时不误操作旧对象。两种传输在账本中用 transport 区分，不会把实时 UUID 当成可查询的文件任务 ID。
+
+仅限单进程，不支持多个 worker 共享账本。新增会话隔离不涵盖原有下载路由；匿名会话也不替代账号计费系统。本期 AI 总结/翻译继续仅用已有平台字幕，不隐式消费 ASR。更多配置、部署和验收见 [video-to-text-setup.md](./video-to-text-setup.md)。

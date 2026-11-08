@@ -1,6 +1,7 @@
 backend/.venv/
 backend/.env
 backend/downloads/
+backend/transcriptions/
 __pycache__/
 .pytest_cache/
 frontend/node_modules/

@@ -6,7 +6,11 @@ async function request(path, options = {}) {
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
     const detail = Array.isArray(data.detail) ? '请求参数有误' : data.detail
-    throw new Error(detail || `请求失败（${res.status}）`)
+    const error = new Error(detail || `请求失败（${res.status}）`)
+    error.code = data.code
+    error.retryable = data.retryable
+    error.status = res.status
+    throw error
   }
   return data
 }
@@ -17,12 +21,16 @@ export const api = {
   download: (body) => request('/api/download', { method: 'POST', body: JSON.stringify(body) }),
   batch: (body) => request('/api/batch', { method: 'POST', body: JSON.stringify(body) }),
   subtitles: (body) => request('/api/subtitles', { method: 'POST', body: JSON.stringify(body) }),
-  transcript: (body) => request('/api/transcript', { method: 'POST', body: JSON.stringify(body) }),
+  transcript: (body, signal) => request('/api/transcript', { method: 'POST', body: JSON.stringify(body), signal }),
+  transcriptionSession: () => request('/api/transcription-session'),
+  transcribe: (body, signal) => request('/api/transcriptions', { method: 'POST', body: JSON.stringify(body), signal }),
+  transcription: (id, signal) => request(`/api/transcriptions/${id}`, { signal }),
   translate: (body) => request('/api/ai/translate', { method: 'POST', body: JSON.stringify(body) }),
   job: (id) => request(`/api/jobs/${id}`),
 }
 
 export const fileUrl = (id) => `/api/jobs/${id}/file`
+export const transcriptionFileUrl = (id, format) => `/api/transcriptions/${id}/file?format=${format}`
 
 /** Poll a job until done/error. Returns a cancel function. */
 export function pollJob(id, onUpdate, interval = 800) {
@@ -31,9 +39,11 @@ export function pollJob(id, onUpdate, interval = 800) {
     if (stopped) return
     try {
       const job = await api.job(id)
+      if (stopped) return
       onUpdate(job)
       if (job.status === 'done' || job.status === 'error') return
     } catch (e) {
+      if (stopped) return
       onUpdate({ status: 'error', error: e.message })
       return
     }

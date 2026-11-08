@@ -11,6 +11,15 @@ class Cue:
     text: str
 
 
+def timestamp_from_ms(value: int) -> str:
+    if type(value) is not int or value < 0:
+        raise ValueError("invalid timestamp")
+    seconds, ms = divmod(value, 1000)
+    minutes, seconds = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours:02}:{minutes:02}:{seconds:02},{ms:03}"
+
+
 def parse_srt(content: str) -> list[Cue]:
     cues = []
     for block in re.split(r"\r?\n\s*\r?\n", content.strip().lstrip("\ufeff")):

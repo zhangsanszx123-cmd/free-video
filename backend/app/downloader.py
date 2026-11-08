@@ -7,7 +7,7 @@ from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError, ExtractorError
 
 from . import config, douyin
-from .errors import VideoError
+from .errors import NoSubtitles, VideoError
 
 URL_RE = re.compile(r"https?://[^\s<>\"'，。！？、；）)】\]]+")
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
@@ -17,6 +17,7 @@ TRAIL_PUNCT_RE = re.compile(r"[.,!?;:，。！？；：、…]+$")
 SUB_PREFERENCE = ["zh-Hans", "zh-CN", "zh", "zh-Hant", "zh-TW", "ai-zh", "en", "en-US", "en-orig", "ja", "ko"]
 IGNORED_SUBS = {"danmaku", "live_chat", "comments"}
 NO_DIRECT_EXTRACTORS = {"Youtube"}  # googlevideo links are bound to the server IP
+SUBTITLE_LOGIN_MESSAGE = "该视频的字幕需要登录 B 站才能获取；本站未使用账号 Cookie，可选择音频转文字"
 
 Report = Callable[..., None]
 
@@ -60,6 +61,8 @@ def base_opts(**extra) -> dict:
     }
     if config.YTDLP_PROXY:
         opts["proxy"] = config.YTDLP_PROXY
+    if config.FFMPEG_BINARY != "ffmpeg":
+        opts["ffmpeg_location"] = config.FFMPEG_BINARY
     opts.update(extra)
     return opts
 
@@ -73,11 +76,32 @@ def _first_entry(info: dict) -> dict:
     return info
 
 
+class _SubtitleDiagnostics:
+    """Capture the pinned extractor's login warning without logging URLs or cookies."""
+    login_required = False
+
+    def debug(self, message):
+        pass
+
+    def error(self, message):
+        pass  # DownloadError is still raised and mapped by extract_info.
+
+    def warning(self, message):
+        if "Subtitles are only available when logged in" in message:
+            self.login_required = True
+
+
 def extract_info(text: str, **opts) -> dict:
     url = extract_url(text)
+    diagnostics = _SubtitleDiagnostics()
+    # Some extractors (including Bilibili) skip subtitles unless explicitly requested.
+    options = {"writesubtitles": True, "writeautomaticsub": True, "logger": diagnostics, **opts}
     try:
-        with YoutubeDL(base_opts(skip_download=True, **opts)) as ydl:
-            return _first_entry(ydl.extract_info(url, download=False))
+        with YoutubeDL(base_opts(skip_download=True, **options)) as ydl:
+            info = _first_entry(ydl.extract_info(url, download=False))
+            if diagnostics.login_required:
+                info["subtitle_login_required"] = True
+            return info
     except (DownloadError, ExtractorError) as e:
         raise VideoError(friendly_error(e)) from e
 
@@ -172,11 +196,11 @@ def list_subtitles(info: dict) -> list[dict]:
     result = [
         {"lang": k, "name": (v[0].get("name") if v else None) or k, "auto": False}
         for k, v in (info.get("subtitles") or {}).items()
-        if k not in IGNORED_SUBS
+        if k not in IGNORED_SUBS and v
     ]
     have = {s["lang"] for s in result}
     for k, v in (info.get("automatic_captions") or {}).items():
-        if k not in have and (k in SUB_PREFERENCE or k.endswith("-orig")):
+        if v and k not in IGNORED_SUBS and k not in have and (k in SUB_PREFERENCE or k.endswith("-orig")):
             result.append({"lang": k, "name": ((v[0].get("name") if v else None) or k) + "（自动）", "auto": True})
     return result
 
@@ -218,6 +242,8 @@ def summarize(info: dict) -> dict:
         "has_audio": not all(f.get("acodec") == "none" for f in formats),
         "audio_url": _pick_audio(info, formats),
         "subtitles": list_subtitles(info),
+        "default_subtitle": choose_subtitle(info),
+        "subtitle_notice": SUBTITLE_LOGIN_MESSAGE if info.get("subtitle_login_required") else None,
         "direct": _pick_direct(info, formats),
     }
 
@@ -293,11 +319,17 @@ def download(text: str, outdir: Path, quality: int | None = None, kind: str = "v
 def download_subtitle(text: str, outdir: Path, lang: str | None = None) -> tuple[Path, dict]:
     """Download one subtitle track as SRT. Returns (path, info)."""
     if douyin.is_douyin(extract_url(text)):
-        raise VideoError("抖音作品没有字幕，暂不支持字幕下载与 AI 总结")
+        # A deleted/private video must not be mistaken for a no-subtitle result.
+        douyin.parse(extract_url(text))
+        raise NoSubtitles("本项目暂未提取到该抖音作品的字幕，可使用音频转文字")
     info = extract_info(text)
     lang = lang or choose_subtitle(info)
     if not lang:
-        raise VideoError("该视频没有可用字幕")
+        if info.get("subtitle_login_required"):
+            raise NoSubtitles(SUBTITLE_LOGIN_MESSAGE)
+        raise NoSubtitles("该视频没有可用字幕")
+    if lang not in {s["lang"] for s in list_subtitles(info)}:
+        raise VideoError("所选字幕语言不可用，请重新选择")
     outdir.mkdir(parents=True, exist_ok=True)
     opts = base_opts(
         skip_download=True,

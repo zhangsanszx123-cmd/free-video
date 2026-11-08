@@ -1,7 +1,7 @@
 import pytest
 
 from app import douyin, downloader
-from app.errors import VideoError
+from app.errors import NoSubtitles, VideoError
 
 DETAIL = {
     "aweme_id": "6915675899241450760",
@@ -120,5 +120,5 @@ def test_downloader_routes_douyin(monkeypatch, tmp_path):
     share = "3.07 复制打开抖音，看看【作品】 https://v.douyin.com/iABC/ 8@5.com"
     assert downloader.parse(share) == {"platform": "Douyin", "url": "https://v.douyin.com/iABC/"}
     assert downloader.download(share, tmp_path).name == "x.mp4"
-    with pytest.raises(VideoError, match="没有字幕"):
+    with pytest.raises(NoSubtitles, match="字幕"):
         downloader.download_subtitle(share, tmp_path)

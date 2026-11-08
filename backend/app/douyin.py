@@ -142,6 +142,7 @@ def summarize(d: dict, url: str) -> dict:
         "has_audio": True,
         "audio_url": audio_url,
         "subtitles": [],
+        "default_subtitle": None,
         "direct": {"url": plays[0], "height": None, "ext": "mp4"},
     }
 
@@ -165,6 +166,8 @@ def _stream(urls: list[str], dest: Path, report: Report):
                     for chunk in r.iter_bytes(256 * 1024):
                         f.write(chunk)
                         done += len(chunk)
+                        if done > limit:
+                            raise VideoError(f"文件超过 {config.MAX_FILESIZE_MB}MB 上限")
                         speed = done / max(time.time() - start, 1e-3)
                         report(status="running", progress=round(min(done / total * 100, 99), 1) if total else 0,
                                speed=speed, eta=int((total - done) / speed) if total else None)
@@ -187,7 +190,7 @@ def download(url: str, outdir: Path, kind: str = "video", report: Report = lambd
     _stream(_play_urls(detail), mp4, report)
     if kind != "audio":
         return mp4
-    ffmpeg = shutil.which("ffmpeg")
+    ffmpeg = shutil.which(config.FFMPEG_BINARY)
     if not ffmpeg:
         raise VideoError("服务器未安装 ffmpeg，无法转码 MP3")
     report(status="processing", message="正在转码 MP3，请稍候…")

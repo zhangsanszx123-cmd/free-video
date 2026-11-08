@@ -9,8 +9,17 @@ from app import config, main
 @pytest.fixture(autouse=True)
 def tmp_downloads(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DOWNLOAD_DIR", tmp_path / "downloads")
+    monkeypatch.setattr(config, "ASR_DIR", tmp_path / "transcriptions")
+    monkeypatch.setattr(config, "DASHSCOPE_API_KEY", None)
+    from app.transcriptions import TranscriptionManager
+    from app import transcription_auth
+    transcription_auth._rates.clear()
+    isolated = TranscriptionManager()
+    monkeypatch.setattr(main, "transcription_manager", isolated)
     config.DOWNLOAD_DIR.mkdir()
-    return config.DOWNLOAD_DIR
+    yield config.DOWNLOAD_DIR
+    isolated.stop()
+    isolated.pool.shutdown(wait=True, cancel_futures=True)
 
 
 @pytest.fixture

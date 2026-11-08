@@ -2,6 +2,7 @@
 import { computed, onUnmounted, ref, watch } from 'vue'
 import Icon from './Icon.vue'
 import JobProgress from './JobProgress.vue'
+import TranscriptPanel from './TranscriptPanel.vue'
 import { api, fileUrl, fmt, pollJob, triggerDownload } from '../api.js'
 import { ui } from '../store.js'
 
@@ -12,13 +13,10 @@ const props = defineProps({
 })
 
 const quality = ref(null)
-const subLang = ref('')
 const videoJob = ref(null)
 const audioJob = ref(null)
-const subJob = ref(null)
 const error = ref('')
 
-const transcriptLoading = ref(false)
 const transcriptText = ref('')
 const timedTranscriptText = ref('')
 const showTimestamps = ref(false)
@@ -30,7 +28,6 @@ const toast = ref({ show: false, message: '', type: 'success' })
 let toastTimer = null
 let stopVideo = null
 let stopAudio = null
-let stopSub = null
 
 function notify(message, type = 'success', duration = 2600) {
   if (toastTimer) clearTimeout(toastTimer)
@@ -92,52 +89,22 @@ const audioPreviewUrl = computed(() => {
 
 const videoDownloading = computed(() => videoJob.value && !['done', 'error'].includes(videoJob.value.status))
 const audioDownloading = computed(() => audioJob.value && !['done', 'error'].includes(audioJob.value.status))
-const subDownloading = computed(() => subJob.value && !['done', 'error'].includes(subJob.value.status))
 
 const displayedTranscript = computed(() => {
   if (showTimestamps.value && timedTranscriptText.value) return timedTranscriptText.value
   return transcriptText.value
 })
 
-const hasValidTranscript = computed(() => {
-  return Boolean(transcriptText.value && !transcriptText.value.startsWith('暂未识别'))
-})
-
-async function loadTranscript(url, lang) {
-  if (!url) return
-  transcriptLoading.value = true
-  transcriptText.value = ''
-  timedTranscriptText.value = ''
-  try {
-    const res = await api.transcript({ url, lang: lang || null })
-    transcriptText.value = res.text || '暂未识别'
-    timedTranscriptText.value = res.timed_text || res.text || ''
-  } catch {
-    transcriptText.value = '暂未识别'
-    timedTranscriptText.value = ''
-  } finally {
-    transcriptLoading.value = false
-  }
-}
-
 watch(() => props.info, (info) => {
   stopVideo?.()
   stopAudio?.()
-  stopSub?.()
   videoJob.value = null
   audioJob.value = null
-  subJob.value = null
   error.value = ''
   if (!info) return
   quality.value = (info.qualities || []).find((q) => q.height <= 1080)?.height ?? info.qualities?.[0]?.height ?? null
-  subLang.value = info.subtitles?.[0]?.lang || ''
-  if (info.subtitles?.length) {
-    loadTranscript(info.url, subLang.value)
-  } else {
-    transcriptLoading.value = false
-    transcriptText.value = '暂未识别'
-    timedTranscriptText.value = ''
-  }
+  transcriptText.value = ''
+  timedTranscriptText.value = ''
 }, { immediate: true })
 
 async function copyText(text, label = '已复制到剪贴板') {
@@ -203,29 +170,6 @@ async function startAudioDownload() {
         notify('音频已准备就绪，开始下载', 'success')
       } else if (j.status === 'error') {
         notify(j.error || '音频提取失败', 'error')
-      }
-    })
-  } catch (e) {
-    error.value = e.message
-    notify(e.message, 'error')
-  }
-}
-
-async function startSubtitleDownload() {
-  if (!props.info || subDownloading.value) return
-  error.value = ''
-  stopSub?.()
-  try {
-    const created = await api.subtitles({ url: props.info.url, lang: subLang.value || null })
-    subJob.value = created
-    stopSub = pollJob(created.id, (j) => {
-      const prevStatus = subJob.value?.status
-      subJob.value = { ...subJob.value, ...j }
-      if (j.status === 'done' && prevStatus !== 'done') {
-        triggerDownload(fileUrl(j.id), j.filename || 'subtitle.srt')
-        notify('字幕文件已开始下载', 'success')
-      } else if (j.status === 'error') {
-        notify(j.error || '字幕下载失败', 'error')
       }
     })
   } catch (e) {
@@ -305,7 +249,6 @@ function handleExport() {
 onUnmounted(() => {
   stopVideo?.()
   stopAudio?.()
-  stopSub?.()
   if (toastTimer) clearTimeout(toastTimer)
 })
 </script>
@@ -586,70 +529,8 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <!-- 4. 视频文案 -->
-          <div class="rounded-2xl border border-gray-200 bg-white p-3 shadow-sm sm:p-4">
-            <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <div class="flex flex-wrap items-center gap-2">
-                <h4 class="text-lg font-semibold text-gray-800">视频文案</h4>
-                <select
-                  v-if="info.subtitles?.length > 1"
-                  v-model="subLang"
-                  aria-label="选择字幕语言"
-                  class="h-8 rounded-lg border border-gray-200 bg-white px-2 text-xs text-gray-600"
-                  @change="loadTranscript(info.url, subLang)"
-                >
-                  <option v-for="s in info.subtitles" :key="s.lang" :value="s.lang">{{ s.name }}</option>
-                </select>
-                <button
-                  v-if="hasValidTranscript && timedTranscriptText"
-                  type="button"
-                  class="rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-600 transition hover:bg-gray-50"
-                  @click="showTimestamps = !showTimestamps"
-                >
-                  {{ showTimestamps ? '切换纯文本' : '显示时间戳' }}
-                </button>
-                <button
-                  v-if="info.subtitles?.length"
-                  type="button"
-                  :disabled="subDownloading"
-                  class="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-600 transition hover:bg-gray-50 disabled:opacity-50"
-                  @click="startSubtitleDownload"
-                >
-                  <Icon name="download" :size="13" />
-                  <span>{{ subDownloading ? '下载中…' : '下载 SRT' }}</span>
-                </button>
-              </div>
-              <div class="flex flex-wrap items-center gap-2">
-                <RouterLink
-                  :to="{ path: '/ai', query: { url: info.url } }"
-                  class="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-100"
-                >
-                  <Icon name="edit" :size="15" />
-                  <span>生成爆款</span>
-                </RouterLink>
-              </div>
-            </div>
-
-            <div class="rounded-xl border border-gray-200 bg-gray-50 p-4">
-              <div v-if="transcriptLoading" class="flex items-center justify-center py-8">
-                <div class="mr-3 inline-block h-8 w-8 animate-spin rounded-full border-b-2 border-blue-600"></div>
-                <span class="font-medium text-blue-600">视频文案提取中...</span>
-              </div>
-              <div v-else class="flex items-start justify-between gap-3">
-                <p class="flex-1 whitespace-pre-wrap leading-7 text-gray-800">{{ displayedTranscript || '暂未识别' }}</p>
-                <button
-                  v-if="hasValidTranscript"
-                  type="button"
-                  title="复制视频文案"
-                  aria-label="复制视频文案"
-                  class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
-                  @click="copyText(displayedTranscript, '视频文案已复制到剪贴板')"
-                >
-                  <Icon name="copy" :size="16" />
-                </button>
-              </div>
-            </div>
-          </div>
+          <TranscriptPanel :info="info" @notify="notify"
+            @result="(value) => { transcriptText = value?.text || ''; timedTranscriptText = value?.timed_text || '' }" />
 
           <!-- 5. 图片内容 -->
           <div v-if="imageList.length" class="rounded-2xl border border-gray-200 bg-white p-3 shadow-sm sm:p-4">

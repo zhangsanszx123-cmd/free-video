@@ -4,7 +4,7 @@
 
 > 仅供个人学习研究。请尊重版权，勿下载、传播未经授权的内容；频繁下载可能触发平台风控。
 
-文档：[需求分析](docs/requirements.md) ｜ [方案设计](docs/design.md)
+文档：[需求分析](docs/requirements.md) ｜ [方案设计](docs/design.md) ｜ [视频转文字配置与验收](docs/video-to-text-setup.md)
 
 ## 技术栈
 - 后端：Python 3.12 + FastAPI，直接调用 yt-dlp Python API；抖音链接走 f2（开发分支，固定 commit，使用自动生成的匿名访客 Cookie，不登录）。均不修改源码；无数据库，内存任务队列 + 临时文件自动清理
@@ -43,6 +43,9 @@ cd ../backend
 | `FILE_TTL_MINUTES` | 临时文件保留时间，默认 30 |
 | `MAX_FILESIZE_MB` | 单文件上限，默认 1024 |
 | `MAX_BATCH` | 批量下载上限，默认 20 |
+| `DASHSCOPE_API_KEY` | 音频转文字唯一云端凭证；默认 fun-asr-flash-2026-06-15，无需 OSS |
+| `ASR_DAILY_BUDGET` | 全站每日识别估算额度，默认 10 元，账本持久化 |
+| `FFMPEG_BINARY` / `FFPROBE_BINARY` | 可选完整路径，默认从 PATH 查找 |
 
 ## API
 | 方法 | 路径 | 说明 |
@@ -51,6 +54,9 @@ cd ../backend
 | POST | `/api/download` `{url, quality, kind}` | 创建下载任务（`kind`: video/audio） |
 | POST | `/api/batch` `{urls[], quality, kind}` | 批量下载并打包 ZIP |
 | POST | `/api/subtitles` `{url, lang}` | 下载 SRT 字幕 |
+| POST | `/api/transcript` `{url, lang?}` | 仅提取已有字幕，输出文字、时间戳、SRT 和来源 |
+| POST | `/api/transcriptions` `{url, lang?, allow_asr}` | 异步字幕优先；显式允许后才调用云端识别 |
+| GET | `/api/transcriptions/{id}` / `/api/transcriptions/{id}/file?format=txt\|srt` | 会话保护的转写状态／导出 |
 | POST | `/api/ai/summary` `{url}` | AI 总结（SSE 流式） |
 | POST | `/api/ai/translate` `{url, target_lang}` | 生成双语 SRT 任务 |
 | GET | `/api/jobs/{id}` / `/api/jobs/{id}/file` | 任务进度 / 下载文件 |
@@ -64,7 +70,9 @@ cd backend
 
 ## 已知限制
 - 不使用账号 Cookie：需登录的内容（如部分小红书、B站大会员画质）无法下载
-- 抖音：仅支持视频（图文作品暂不支持），无字幕所以不支持 AI 总结；平台风控更新可能导致暂时失效，需升级 f2
+- 抖音：仅支持视频（图文作品暂不支持），当前适配器不提取字幕轨道；可配置云端音频转文字，首期不联动无字幕 AI 总结。平台风控更新可能导致暂时失效，需升级 f2
 - YouTube：部分视频会触发人机验证（出口 IP 被风控），可更换代理节点后重试
-- AI 功能依赖视频字幕，无字幕视频暂不支持（后续可接入 faster-whisper 语音识别）
+- 视频转文字优先读取已有字幕，无字幕时调用 fun-asr-flash-2026-06-15；只需百炼 Key，无需 OSS。超过 5 分钟自动分段并发识别、合并时间轴，整条最长 60 分钟
+- AI 总结/翻译本期仍依赖平台字幕；没有自动联动收费识别
+- 多人转写仅支持单进程，状态目录需持久化；生产需 HTTPS 和会话配置。实时连接中断不自动重发音轨，未决费用保留供核对，详见配置指南
 - 定价页仅为展示，未接入真实支付
