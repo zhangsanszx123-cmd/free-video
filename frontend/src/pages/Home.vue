@@ -11,6 +11,9 @@ const url = ref('')
 const loading = ref(false)
 const error = ref('')
 const info = ref(null)
+const parsedUrl = ref('')
+const activeView = ref('download')
+const autoSummarizeSeq = ref(0)
 
 async function paste() {
   try {
@@ -24,23 +27,50 @@ const scrollTop = () => window.scrollTo({ top: 0, behavior: 'smooth' })
 
 const route = useRoute()
 onMounted(() => {
+  if (route.query.view === 'ai') activeView.value = 'ai'
   if (route.query.url) {
     url.value = String(route.query.url)
-    parse()
+    submitWithView(activeView.value)
   }
 })
 
 async function parse() {
-  if (!url.value.trim() || loading.value) return
+  const target = url.value.trim()
+  if (!target || loading.value) return false
   loading.value = true
   error.value = ''
   info.value = null
   try {
-    info.value = await api.parse(url.value.trim())
+    info.value = await api.parse(target)
+    parsedUrl.value = target
+    return true
   } catch (e) {
     error.value = e.message
+    return false
   } finally {
     loading.value = false
+  }
+}
+
+async function submitWithView(view = 'download') {
+  const target = url.value.trim()
+  if (!target || loading.value) return
+  activeView.value = view
+  const needParse = !info.value || parsedUrl.value !== target
+  const ok = needParse ? await parse() : true
+  if (ok && view === 'ai') {
+    autoSummarizeSeq.value += 1
+  }
+}
+
+async function selectTab(view) {
+  activeView.value = view
+  const target = url.value.trim()
+  if (target && !info.value && !loading.value) {
+    const ok = await parse()
+    if (ok && view === 'ai') {
+      autoSummarizeSeq.value += 1
+    }
   }
 }
 </script>
@@ -64,52 +94,76 @@ async function parse() {
         <b class="text-slate-800">MP3 音频</b>与<b class="text-slate-800">字幕</b>；支持批量打包与 AI 视频总结。电脑、手机都能用。
       </p>
 
-      <!-- Input shell -->
+      <!-- Input shell (max-w-4xl = 896px centered funnel, with top-left dual view tabs) -->
       <div class="input-shell mx-auto mt-8 max-w-4xl rounded-[1.75rem] p-3 text-left sm:p-5">
-        <div class="mb-3 flex flex-wrap items-center justify-between gap-2 px-1">
-          <div class="inline-flex items-center gap-2 text-xs font-semibold text-slate-500">
-            <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-950 text-white shadow-sm">
-              <Icon name="link" :size="15" />
-            </span>
-            <span>粘贴视频/图片分享链接（支持抖音、B站、YouTube 等 1800+ 平台）</span>
+        <div class="mb-3.5 flex flex-wrap items-center justify-between gap-2 px-0.5">
+          <!-- Top-left Dual View Tabs (High-Contrast Gradient Active State) -->
+          <div class="inline-flex items-center gap-1.5 rounded-2xl border border-slate-200/90 bg-slate-100/95 p-1.5 shadow-inner">
+            <button
+              type="button"
+              class="inline-flex cursor-pointer items-center gap-2 rounded-xl px-4 py-2 text-xs font-extrabold transition-all duration-200 sm:text-sm"
+              :class="activeView === 'download'
+                ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-[0_8px_20px_-6px_rgba(79,70,229,0.55)] ring-1 ring-indigo-500/50'
+                : ' bg-white/60 text-slate-600 hover:bg-white hover:text-indigo-600'"
+              @click="selectTab('download')"
+            >
+              <Icon name="download" :size="16" />
+              <span>素材与文案下载</span>
+            </button>
+            <button
+              type="button"
+              class="inline-flex cursor-pointer items-center gap-2 rounded-xl px-4 py-2 text-xs font-extrabold transition-all duration-200 sm:text-sm"
+              :class="activeView === 'ai'
+                ? 'bg-gradient-to-r from-indigo-600 via-violet-600 to-purple-600 text-white shadow-[0_8px_20px_-6px_rgba(124,58,237,0.6)] ring-1 ring-purple-500/50'
+                : 'bg-white/60 text-slate-600 hover:bg-white hover:text-violet-600'"
+              @click="selectTab('ai')"
+            >
+              <Icon name="sparkles" :size="16" />
+              <span>AI 视频总结</span>
+              <span class="pro-badge shadow-xs">PRO</span>
+            </button>
           </div>
           <div class="hidden items-center gap-1.5 text-xs text-slate-400 sm:flex">
             <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400"></span> 服务运行中 · 文件 30 分钟后自动删除
           </div>
         </div>
-        <form class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-2.5" @submit.prevent="parse">
+        <form class="flex flex-col gap-2.5 sm:flex-row sm:items-center" @submit.prevent="submitWithView(activeView)">
           <div class="relative flex-1">
             <Icon name="link" :size="18" class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
             <input v-model="url" type="text" inputmode="url" autocomplete="off"
               placeholder="粘贴视频链接或分享口令，如 https://b23.tv/xxxx"
               class="input-control w-full rounded-2xl py-4 pl-11 pr-24 text-sm text-slate-900 placeholder-slate-400 sm:text-base" />
             <div class="absolute right-2 top-1/2 flex -translate-y-1/2 gap-1">
-              <button v-if="url" type="button" class="rounded-lg px-2 py-1.5 text-xs text-slate-500 hover:bg-slate-100" @click="url = ''; info = null; error = ''">清空</button>
+              <button v-if="url" type="button" class="rounded-lg px-2 py-1.5 text-xs text-slate-500 hover:bg-slate-100" @click="url = ''; info = null; parsedUrl = ''; error = ''">清空</button>
               <button v-else type="button" class="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50" @click="paste">
                 <Icon name="clipboard" :size="14" /> 粘贴
               </button>
             </div>
           </div>
-          <button type="submit" :disabled="loading || !url.trim()"
-            class="btn-primary inline-flex min-h-[54px] items-center justify-center gap-2 rounded-2xl px-8 text-base font-bold">
-            <Icon :name="loading ? 'loader' : 'zap'" :size="18" :class="{ 'animate-spin': loading }" />
-            {{ loading ? '解析中…' : '立即解析' }}
-          </button>
+          <div class="flex gap-2">
+            <button
+              type="button"
+              :disabled="loading || !url.trim()"
+              class="btn-primary inline-flex min-h-[52px] flex-1 items-center justify-center gap-2 rounded-2xl px-6 text-[15px] font-bold whitespace-nowrap sm:flex-initial"
+              @click="submitWithView('download')"
+            >
+              <Icon :name="loading && activeView === 'download' ? 'loader' : 'zap'" :size="18" :class="{ 'animate-spin': loading && activeView === 'download' }" />
+              {{ loading && activeView === 'download' ? '解析中…' : '立即解析' }}
+            </button>
+            <button
+              type="button"
+              :disabled="loading || !url.trim()"
+              class="inline-flex min-h-[52px] flex-1 items-center justify-center gap-2 rounded-2xl bg-gradient-to-br from-indigo-600 via-violet-600 to-purple-600 px-6 text-[15px] font-bold text-white shadow-[0_10px_24px_-10px_rgba(124,58,237,0.55)] transition hover:-translate-y-px hover:shadow-[0_14px_28px_-10px_rgba(124,58,237,0.7)] disabled:cursor-not-allowed disabled:opacity-55 disabled:hover:translate-y-0 whitespace-nowrap sm:flex-initial"
+              @click="submitWithView('ai')"
+            >
+              <Icon :name="loading && activeView === 'ai' ? 'loader' : 'sparkles'" :size="18" :class="{ 'animate-spin': loading && activeView === 'ai' }" />
+              {{ loading && activeView === 'ai' ? '解析中…' : 'AI 总结' }}
+            </button>
+          </div>
         </form>
         <p v-if="error" class="mt-3 flex items-start gap-2 rounded-xl bg-rose-50 px-3 py-2.5 text-sm text-rose-600">
           <Icon name="alert" :size="16" class="mt-0.5 shrink-0" /> {{ error }}
         </p>
-        <RouterLink to="/batch"
-          class="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-indigo-100 bg-gradient-to-r from-blue-50 via-indigo-50 to-violet-50 px-4 py-3 transition hover:border-indigo-200 hover:shadow-md">
-          <span class="flex items-center gap-3">
-            <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 via-indigo-500 to-violet-600 text-white shadow-sm"><Icon name="layers" :size="18" /></span>
-            <span>
-              <span class="flex items-center gap-1.5 text-sm font-bold text-indigo-950">批量下载 <span class="pro-badge">PRO</span></span>
-              <span class="block text-xs text-indigo-900/60">一次粘贴 20 条链接 · 自动去重 · 打包 ZIP</span>
-            </span>
-          </span>
-          <Icon name="arrow" :size="18" class="text-indigo-400" />
-        </RouterLink>
       </div>
 
       <div class="mt-7 flex flex-wrap items-center justify-center gap-2">
@@ -121,8 +175,15 @@ async function parse() {
       </div>
     </div>
 
+    <!-- ResultCard (max-w-6xl = 1152px wide workspace) -->
     <div v-if="loading || info" class="relative mx-auto mt-6 max-w-6xl px-3 text-left sm:mt-8 sm:px-4 md:mt-12">
-      <ResultCard :info="info" :loading="loading" />
+      <ResultCard
+        :info="info"
+        :loading="loading"
+        :active-view="activeView"
+        :auto-summarize-seq="autoSummarizeSeq"
+        @update:active-view="activeView = $event"
+      />
     </div>
   </section>
 

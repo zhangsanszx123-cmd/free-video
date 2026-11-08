@@ -1,8 +1,10 @@
 <script setup>
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import Icon from './Icon.vue'
 import JobProgress from './JobProgress.vue'
 import TranscriptPanel from './TranscriptPanel.vue'
+import AiLearningPanel from '../learning/AiLearningPanel.vue'
+import { formatTs, platformTimeUrl } from '../learning/learnApi.js'
 import { api, fileUrl, fmt, pollJob, triggerDownload } from '../api.js'
 import { ui } from '../store.js'
 
@@ -10,7 +12,14 @@ const props = defineProps({
   info: { type: Object, default: null },
   loading: { type: Boolean, default: false },
   mode: { type: String, default: 'video' },
+  activeView: { type: String, default: 'download' },
+  autoSummarizeSeq: { type: Number, default: 0 },
 })
+const emit = defineEmits(['update:activeView'])
+
+const downloadVideoEl = useTemplateRef('download-video')
+const aiVideoEl = useTemplateRef('ai-video')
+const aiSeekStatus = ref('')
 
 const quality = ref(null)
 const videoJob = ref(null)
@@ -101,11 +110,37 @@ watch(() => props.info, (info) => {
   videoJob.value = null
   audioJob.value = null
   error.value = ''
+  aiSeekStatus.value = ''
   if (!info) return
   quality.value = (info.qualities || []).find((q) => q.height <= 1080)?.height ?? info.qualities?.[0]?.height ?? null
   transcriptText.value = ''
   timedTranscriptText.value = ''
 }, { immediate: true })
+
+watch(() => props.activeView, (view) => {
+  if (view === 'ai') {
+    downloadVideoEl.value?.pause?.()
+  } else {
+    aiVideoEl.value?.pause?.()
+  }
+})
+
+function seekAiVideo(seconds) {
+  const tsLabel = formatTs(seconds)
+  const totalLabel = props.info?.duration ? ` / ${fmt.duration(props.info.duration)}` : ''
+  aiSeekStatus.value = `▶ 已跳播 · ${tsLabel}${totalLabel}`
+  const v = aiVideoEl.value
+  if (v && v.getAttribute('src')) {
+    v.currentTime = seconds
+    v.play?.().catch(() => {})
+    notify(`🎯 左侧预览小窗已跳播至 ${tsLabel}`, 'success')
+    return
+  }
+  if (props.info?.url) {
+    window.open(platformTimeUrl(props.info.url, seconds), '_blank', 'noopener')
+    notify(`已在原平台打开 ${tsLabel} 处`, 'success')
+  }
+}
 
 async function copyText(text, label = '已复制到剪贴板') {
   if (!text) return
@@ -300,8 +335,13 @@ onUnmounted(() => {
         <div class="flex items-center gap-3">
           <div class="h-8 w-1.5 rounded-full bg-gradient-to-b from-blue-600 to-purple-600"></div>
           <div>
-            <h3 class="text-xl font-bold text-gray-950">提取结果</h3>
-            <p class="mt-0.5 text-sm text-gray-500">文案、媒体素材和导出操作已整理完成</p>
+            <div class="flex flex-wrap items-center gap-2">
+              <h3 class="text-xl font-bold text-gray-950">提取结果</h3>
+              <span class="rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-semibold text-indigo-600">
+                {{ activeView === 'ai' ? '当前：AI 视频总结' : '当前：素材与文案下载' }}
+              </span>
+            </div>
+            <p class="mt-0.5 text-sm text-gray-500">文案、媒体素材和导出操作已整理完成（可在上方输入框选项卡随时切换至 AI 视频总结）</p>
           </div>
         </div>
         <div v-if="info" class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
@@ -324,10 +364,17 @@ onUnmounted(() => {
             </button>
             <RouterLink
               :to="{ path: '/ai', query: { url: info.url } }"
+              class="inline-flex items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm transition hover:border-gray-300 hover:bg-gray-50"
+            >
+              <Icon name="edit" :size="15" />
+              <span>AI 创作</span>
+            </RouterLink>
+            <RouterLink
+              :to="{ path: '/learn', query: { url: info.url } }"
               class="inline-flex items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-indigo-600/25 transition hover:bg-indigo-500"
             >
               <Icon name="sparkles" :size="16" />
-              <span>AI 创作</span>
+              <span>↗ 全屏工作台</span>
             </RouterLink>
           </div>
         </div>
@@ -347,248 +394,317 @@ onUnmounted(() => {
         </div>
 
         <template v-else-if="info">
-          <!-- 1. 标题与简介 -->
-          <div class="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
-            <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h4 class="text-base font-bold text-gray-900">标题与简介</h4>
-              </div>
-              <div class="flex flex-wrap items-center gap-2">
-                <RouterLink
-                  :to="{ path: '/ai', query: { url: info.url } }"
-                  class="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-100"
-                >
-                  <Icon name="edit" :size="15" />
-                  <span>生成爆款</span>
-                </RouterLink>
-              </div>
-            </div>
-
-            <div class="space-y-3">
-              <!-- Title row -->
-              <div v-if="info.title" class="flex items-start justify-between gap-3">
-                <p class="text-base font-semibold leading-relaxed text-gray-900 sm:text-lg">{{ info.title }}</p>
-                <button
-                  type="button"
-                  title="复制标题"
-                  aria-label="复制标题"
-                  class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
-                  @click="copyText(info.title, '标题已复制到剪贴板')"
-                >
-                  <Icon name="copy" :size="16" />
-                </button>
+          <!-- VIEW 1: 素材与文案下载 -->
+          <div v-show="activeView !== 'ai'" class="space-y-4">
+            <!-- 1. 标题与简介 -->
+            <div class="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
+              <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h4 class="text-base font-bold text-gray-900">标题与简介</h4>
+                </div>
+                <div class="flex flex-wrap items-center gap-2">
+                  <RouterLink
+                    :to="{ path: '/ai', query: { url: info.url } }"
+                    class="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-100"
+                  >
+                    <Icon name="edit" :size="15" />
+                    <span>生成爆款</span>
+                  </RouterLink>
+                </div>
               </div>
 
-              <!-- Content / Description row -->
-              <div v-if="contentText" class="flex items-start justify-between gap-3 border-t border-gray-100 pt-3">
-                <p class="flex-1 whitespace-pre-wrap leading-7 text-gray-700">{{ contentText }}</p>
-                <button
-                  type="button"
-                  title="复制正文"
-                  aria-label="复制正文"
-                  class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
-                  @click="copyText(contentText, '正文已复制到剪贴板')"
-                >
-                  <Icon name="copy" :size="16" />
-                </button>
-              </div>
-
-              <!-- Hashtags row -->
-              <div v-if="tags.length" class="flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3">
-                <button
-                  v-for="tag in tags"
-                  :key="tag"
-                  type="button"
-                  :title="`复制话题 #${tag}`"
-                  :aria-label="`复制话题 #${tag}`"
-                  class="inline-flex items-center rounded-full border border-indigo-100 bg-indigo-50 px-2.5 py-1 text-xs text-indigo-500 transition hover:border-indigo-200 hover:bg-indigo-100 hover:text-indigo-600"
-                  @click="copyText(`#${tag}`, `已复制话题 #${tag}`)"
-                >
-                  #{{ tag }}
-                </button>
-                <button
-                  type="button"
-                  title="复制全部话题"
-                  aria-label="复制全部话题"
-                  class="inline-flex h-7 w-7 items-center justify-center rounded-full text-indigo-400 transition hover:bg-indigo-50 hover:text-indigo-600"
-                  @click="copyAllTags"
-                >
-                  <Icon name="copy" :size="15" />
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- 2. 视频内容 -->
-          <div class="rounded-2xl border border-gray-200 bg-white p-3 shadow-sm sm:p-4">
-            <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h4 class="text-base font-bold text-gray-900 sm:text-lg">视频内容</h4>
-                <p class="mt-0.5 text-sm text-gray-500">
-                  共 1 个视频素材
-                  <span v-if="info.platform" class="ml-1.5 text-xs text-gray-400">· {{ info.platform }}</span>
-                  <span v-if="info.duration" class="ml-1.5 text-xs text-gray-400">· {{ fmt.duration(info.duration) }}</span>
-                </p>
-              </div>
-              <div class="flex flex-wrap items-center gap-2">
-                <!-- Quality selector if multiple qualities exist -->
-                <select
-                  v-if="qualities.length"
-                  v-model="quality"
-                  aria-label="选择视频清晰度"
-                  class="h-9 rounded-lg border border-gray-200 bg-white px-2.5 text-xs font-semibold text-gray-700 shadow-sm focus:border-indigo-400 focus:outline-none sm:text-sm"
-                >
-                  <option v-for="q in qualities" :key="q.height" :value="q.height">
-                    {{ q.label }}{{ q.size ? ` (${fmt.size(q.size)})` : '' }}
-                  </option>
-                </select>
-                <button
-                  type="button"
-                  class="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 shadow-sm transition hover:border-gray-300 hover:bg-gray-50 hover:text-gray-900 sm:px-4 sm:text-sm"
-                  @click="copyVideoLink"
-                >
-                  <Icon name="copy" :size="15" />
-                  <span>复制全部链接</span>
-                </button>
-                <button
-                  type="button"
-                  :disabled="videoDownloading"
-                  class="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 shadow-sm transition hover:border-gray-300 hover:bg-gray-50 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-50 sm:px-4 sm:text-sm"
-                  @click="startVideoDownload"
-                >
-                  <Icon name="download" :size="15" :class="{ 'animate-pulse': videoDownloading }" />
-                  <span>{{ videoDownloading ? `下载中 ${Math.round(videoJob?.progress || 0)}%` : '批量下载 ZIP' }}</span>
-                </button>
-              </div>
-            </div>
-
-            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <div class="rounded-xl border border-gray-200 bg-gray-50 p-2">
-                <video
-                  :src="videoPreviewUrl"
-                  :poster="thumb"
-                  controls
-                  preload="metadata"
-                  class="mb-2 w-full rounded-lg bg-black"
-                  style="max-height: 160px"
-                  referrerpolicy="no-referrer"
-                ></video>
-                <div class="mt-2 flex gap-2">
+              <div class="space-y-3">
+                <!-- Title row -->
+                <div v-if="info.title" class="flex items-start justify-between gap-3">
+                  <p class="text-base font-semibold leading-relaxed text-gray-900 sm:text-lg">{{ info.title }}</p>
                   <button
                     type="button"
-                    :disabled="videoDownloading"
-                    class="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-center text-sm font-medium text-gray-700 shadow-sm transition hover:border-gray-300 hover:bg-gray-50 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-60"
-                    @click="startVideoDownload"
+                    title="复制标题"
+                    aria-label="复制标题"
+                    class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+                    @click="copyText(info.title, '标题已复制到剪贴板')"
                   >
-                    <Icon name="download" :size="15" :class="{ 'animate-pulse': videoDownloading }" />
-                    <span>
-                      {{ videoDownloading ? (videoJob?.status === 'processing' ? '合并中…' : `下载中 ${Math.round(videoJob?.progress || 0)}%`) : '下载视频' }}
-                    </span>
+                    <Icon name="copy" :size="16" />
+                  </button>
+                </div>
+
+                <!-- Content / Description row -->
+                <div v-if="contentText" class="flex items-start justify-between gap-3 border-t border-gray-100 pt-3">
+                  <p class="flex-1 whitespace-pre-wrap leading-7 text-gray-700">{{ contentText }}</p>
+                  <button
+                    type="button"
+                    title="复制正文"
+                    aria-label="复制正文"
+                    class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+                    @click="copyText(contentText, '正文已复制到剪贴板')"
+                  >
+                    <Icon name="copy" :size="16" />
+                  </button>
+                </div>
+
+                <!-- Hashtags row -->
+                <div v-if="tags.length" class="flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3">
+                  <button
+                    v-for="tag in tags"
+                    :key="tag"
+                    type="button"
+                    :title="`复制话题 #${tag}`"
+                    :aria-label="`复制话题 #${tag}`"
+                    class="inline-flex items-center rounded-full border border-indigo-100 bg-indigo-50 px-2.5 py-1 text-xs text-indigo-500 transition hover:border-indigo-200 hover:bg-indigo-100 hover:text-indigo-600"
+                    @click="copyText(`#${tag}`, `已复制话题 #${tag}`)"
+                  >
+                    #{{ tag }}
                   </button>
                   <button
                     type="button"
-                    class="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-center text-sm font-medium text-gray-700 shadow-sm transition hover:border-gray-300 hover:bg-gray-50 hover:text-gray-900"
+                    title="复制全部话题"
+                    aria-label="复制全部话题"
+                    class="inline-flex h-7 w-7 items-center justify-center rounded-full text-indigo-400 transition hover:bg-indigo-50 hover:text-indigo-600"
+                    @click="copyAllTags"
+                  >
+                    <Icon name="copy" :size="15" />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 2. 视频内容 -->
+            <div class="rounded-2xl border border-gray-200 bg-white p-3 shadow-sm sm:p-4">
+              <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h4 class="text-base font-bold text-gray-900 sm:text-lg">视频内容</h4>
+                  <p class="mt-0.5 text-sm text-gray-500">
+                    共 1 个视频素材
+                    <span v-if="info.platform" class="ml-1.5 text-xs text-gray-400">· {{ info.platform }}</span>
+                    <span v-if="info.duration" class="ml-1.5 text-xs text-gray-400">· {{ fmt.duration(info.duration) }}</span>
+                  </p>
+                </div>
+                <div class="flex flex-wrap items-center gap-2">
+                  <!-- Quality selector if multiple qualities exist -->
+                  <select
+                    v-if="qualities.length"
+                    v-model="quality"
+                    aria-label="选择视频清晰度"
+                    class="h-9 rounded-lg border border-gray-200 bg-white px-2.5 text-xs font-semibold text-gray-700 shadow-sm focus:border-indigo-400 focus:outline-none sm:text-sm"
+                  >
+                    <option v-for="q in qualities" :key="q.height" :value="q.height">
+                      {{ q.label }}{{ q.size ? ` (${fmt.size(q.size)})` : '' }}
+                    </option>
+                  </select>
+                  <button
+                    type="button"
+                    class="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 shadow-sm transition hover:border-gray-300 hover:bg-gray-50 hover:text-gray-900 sm:px-4 sm:text-sm"
                     @click="copyVideoLink"
                   >
                     <Icon name="copy" :size="15" />
-                    <span>复制链接</span>
+                    <span>复制全部链接</span>
                   </button>
-                </div>
-              </div>
-            </div>
-            <JobProgress v-if="videoJob && (videoDownloading || videoJob.status === 'error')" :job="videoJob" class="mt-3" />
-          </div>
-
-          <!-- 3. 音频内容 -->
-          <div v-if="info.has_audio !== false" class="rounded-2xl border border-gray-200 bg-white p-3 shadow-sm sm:p-4">
-            <div class="mb-3 flex items-center justify-between">
-              <h4 class="text-lg font-semibold text-gray-800">音频内容</h4>
-              <button
-                type="button"
-                :disabled="audioDownloading"
-                class="inline-flex items-center gap-1.5 text-sm font-medium text-gray-500 transition-colors hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-60"
-                @click="startAudioDownload"
-              >
-                <Icon name="download" :size="15" :class="{ 'animate-pulse': audioDownloading }" />
-                <span>{{ audioDownloading ? `提取中 ${Math.round(audioJob?.progress || 0)}%` : '下载音频' }}</span>
-              </button>
-            </div>
-            <div class="rounded-xl border border-gray-200 bg-gray-50 p-4">
-              <div v-if="audioDownloading && !audioPreviewUrl" class="flex items-center justify-center py-6">
-                <div class="mr-3 inline-block h-7 w-7 animate-spin rounded-full border-b-2 border-blue-600"></div>
-                <span class="font-medium text-blue-600">音频内容提取中...</span>
-              </div>
-              <audio
-                v-else
-                :src="audioPreviewUrl"
-                controls
-                preload="none"
-                class="w-full"
-                referrerpolicy="no-referrer"
-              ></audio>
-            </div>
-          </div>
-
-          <TranscriptPanel :info="info" @notify="notify"
-            @result="(value) => { transcriptText = value?.text || ''; timedTranscriptText = value?.timed_text || '' }" />
-
-          <!-- 5. 图片内容 -->
-          <div v-if="imageList.length" class="rounded-2xl border border-gray-200 bg-white p-3 shadow-sm sm:p-4">
-            <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h4 class="text-base font-bold text-gray-900 sm:text-lg">图片内容</h4>
-                <p class="mt-0.5 text-sm text-gray-500">共 {{ imageList.length }} 张图片素材</p>
-              </div>
-              <div class="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  class="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 shadow-sm transition hover:border-gray-300 hover:bg-gray-50 hover:text-gray-900 sm:px-4 sm:text-sm"
-                  @click="copyAllImageLinks"
-                >
-                  <Icon name="copy" :size="15" />
-                  <span>复制全部链接</span>
-                </button>
-                <button
-                  type="button"
-                  class="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 shadow-sm transition hover:border-gray-300 hover:bg-gray-50 hover:text-gray-900 sm:px-4 sm:text-sm"
-                  @click="downloadAllImages"
-                >
-                  <Icon name="download" :size="15" />
-                  <span>批量下载 ZIP</span>
-                </button>
-                <RouterLink
-                  :to="{ path: '/ai', query: { url: info.url } }"
-                  class="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 text-xs font-semibold text-indigo-600 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-100 sm:px-4 sm:text-sm"
-                >
-                  <Icon name="file" :size="15" />
-                  <span>图片文案提取</span>
-                </RouterLink>
-              </div>
-            </div>
-
-            <div class="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4">
-              <div
-                v-for="(img, idx) in imageList"
-                :key="idx"
-                class="group relative overflow-hidden rounded-2xl border border-gray-200 bg-gray-50"
-              >
-                <img
-                  :src="img"
-                  :alt="`图片 ${idx + 1}`"
-                  class="h-auto w-full object-contain"
-                  referrerpolicy="no-referrer"
-                />
-                <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100">
                   <button
                     type="button"
-                    class="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-white/90 px-3 py-1 text-center text-sm font-medium text-gray-700 transition hover:bg-white"
-                    @click="downloadImage(img, idx)"
+                    :disabled="videoDownloading"
+                    class="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 shadow-sm transition hover:border-gray-300 hover:bg-gray-50 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-50 sm:px-4 sm:text-sm"
+                    @click="startVideoDownload"
                   >
-                    <Icon name="download" :size="14" />
-                    <span>下载图片</span>
+                    <Icon name="download" :size="15" :class="{ 'animate-pulse': videoDownloading }" />
+                    <span>{{ videoDownloading ? `下载中 ${Math.round(videoJob?.progress || 0)}%` : '批量下载 ZIP' }}</span>
                   </button>
                 </div>
               </div>
+
+              <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <div class="rounded-xl border border-gray-200 bg-gray-50 p-2">
+                  <video
+                    ref="download-video"
+                    :src="videoPreviewUrl"
+                    :poster="thumb"
+                    controls
+                    preload="metadata"
+                    class="mb-2 w-full rounded-lg bg-black"
+                    style="max-height: 160px"
+                    referrerpolicy="no-referrer"
+                  ></video>
+                  <div class="mt-2 flex gap-2">
+                    <button
+                      type="button"
+                      :disabled="videoDownloading"
+                      class="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-center text-sm font-medium text-gray-700 shadow-sm transition hover:border-gray-300 hover:bg-gray-50 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-60"
+                      @click="startVideoDownload"
+                    >
+                      <Icon name="download" :size="15" :class="{ 'animate-pulse': videoDownloading }" />
+                      <span>
+                        {{ videoDownloading ? (videoJob?.status === 'processing' ? '合并中…' : `下载中 ${Math.round(videoJob?.progress || 0)}%`) : '下载视频' }}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      class="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-center text-sm font-medium text-gray-700 shadow-sm transition hover:border-gray-300 hover:bg-gray-50 hover:text-gray-900"
+                      @click="copyVideoLink"
+                    >
+                      <Icon name="copy" :size="15" />
+                      <span>复制链接</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <JobProgress v-if="videoJob && (videoDownloading || videoJob.status === 'error')" :job="videoJob" class="mt-3" />
+            </div>
+
+            <!-- 3. 音频内容 -->
+            <div v-if="info.has_audio !== false" class="rounded-2xl border border-gray-200 bg-white p-3 shadow-sm sm:p-4">
+              <div class="mb-3 flex items-center justify-between">
+                <h4 class="text-lg font-semibold text-gray-800">音频内容</h4>
+                <button
+                  type="button"
+                  :disabled="audioDownloading"
+                  class="inline-flex items-center gap-1.5 text-sm font-medium text-gray-500 transition-colors hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-60"
+                  @click="startAudioDownload"
+                >
+                  <Icon name="download" :size="15" :class="{ 'animate-pulse': audioDownloading }" />
+                  <span>{{ audioDownloading ? `提取中 ${Math.round(audioJob?.progress || 0)}%` : '下载音频' }}</span>
+                </button>
+              </div>
+              <div class="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                <div v-if="audioDownloading && !audioPreviewUrl" class="flex items-center justify-center py-6">
+                  <div class="mr-3 inline-block h-7 w-7 animate-spin rounded-full border-b-2 border-blue-600"></div>
+                  <span class="font-medium text-blue-600">音频内容提取中...</span>
+                </div>
+                <audio
+                  v-else
+                  :src="audioPreviewUrl"
+                  controls
+                  preload="none"
+                  class="w-full"
+                  referrerpolicy="no-referrer"
+                ></audio>
+              </div>
+            </div>
+
+            <TranscriptPanel
+              :info="info"
+              @notify="notify"
+              @result="(value) => { transcriptText = value?.text || ''; timedTranscriptText = value?.timed_text || '' }"
+            />
+
+            <!-- 5. 图片内容 -->
+            <div v-if="imageList.length" class="rounded-2xl border border-gray-200 bg-white p-3 shadow-sm sm:p-4">
+              <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h4 class="text-base font-bold text-gray-900 sm:text-lg">图片内容</h4>
+                  <p class="mt-0.5 text-sm text-gray-500">共 {{ imageList.length }} 张图片素材</p>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    class="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 shadow-sm transition hover:border-gray-300 hover:bg-gray-50 hover:text-gray-900 sm:px-4 sm:text-sm"
+                    @click="copyAllImageLinks"
+                  >
+                    <Icon name="copy" :size="15" />
+                    <span>复制全部链接</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 shadow-sm transition hover:border-gray-300 hover:bg-gray-50 hover:text-gray-900 sm:px-4 sm:text-sm"
+                    @click="downloadAllImages"
+                  >
+                    <Icon name="download" :size="15" />
+                    <span>批量下载 ZIP</span>
+                  </button>
+                  <RouterLink
+                    :to="{ path: '/ai', query: { url: info.url } }"
+                    class="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 text-xs font-semibold text-indigo-600 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-100 sm:px-4 sm:text-sm"
+                  >
+                    <Icon name="file" :size="15" />
+                    <span>图片文案提取</span>
+                  </RouterLink>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4">
+                <div
+                  v-for="(img, idx) in imageList"
+                  :key="idx"
+                  class="group relative overflow-hidden rounded-2xl border border-gray-200 bg-gray-50"
+                >
+                  <img
+                    :src="img"
+                    :alt="`图片 ${idx + 1}`"
+                    class="h-auto w-full object-contain"
+                    referrerpolicy="no-referrer"
+                  />
+                  <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100">
+                    <button
+                      type="button"
+                      class="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-white/90 px-3 py-1 text-center text-sm font-medium text-gray-700 transition hover:bg-white"
+                      @click="downloadImage(img, idx)"
+                    >
+                      <Icon name="download" :size="14" />
+                      <span>下载图片</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- VIEW 2: AI 视频总结专属视图（左侧联动视频小窗 + 右侧完整 AI 精读面板） -->
+          <div v-show="activeView === 'ai'" class="grid grid-cols-1 items-start gap-[18px] min-[960px]:grid-cols-[360px_1fr]">
+            <!-- Left Mini Sticky Video Preview + Quick Download -->
+            <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm min-[960px]:sticky min-[960px]:top-20">
+              <div class="mb-2.5 flex items-center justify-between gap-2">
+                <div class="text-sm font-bold text-slate-900">🎬 同屏联动预览</div>
+                <span v-if="aiSeekStatus" class="rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-semibold text-indigo-600">
+                  {{ aiSeekStatus }}
+                </span>
+                <span v-else-if="info.duration" class="text-xs font-medium text-slate-400">
+                  ▶ 00:00 / {{ fmt.duration(info.duration) }}
+                </span>
+              </div>
+              <video
+                ref="ai-video"
+                :src="videoPreviewUrl"
+                :poster="thumb"
+                controls
+                preload="metadata"
+                class="aspect-video w-full rounded-[14px] bg-slate-950 object-contain"
+                referrerpolicy="no-referrer"
+              ></video>
+              <p v-if="info.title" class="mt-2.5 line-clamp-2 text-xs font-semibold leading-relaxed text-slate-700">
+                {{ info.title }}
+              </p>
+              <p class="mt-1 text-xs text-slate-400">点击右侧时间戳自动跳播</p>
+              <div class="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  :disabled="videoDownloading"
+                  class="btn-primary inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-[10px] px-3 text-[13px] font-bold disabled:cursor-not-allowed disabled:opacity-60"
+                  @click="startVideoDownload"
+                >
+                  <Icon name="download" :size="14" :class="{ 'animate-pulse': videoDownloading }" />
+                  <span>
+                    {{ videoDownloading ? (videoJob?.status === 'processing' ? '合并中…' : `下载中 ${Math.round(videoJob?.progress || 0)}%`) : '⬇ 顺手下载视频' }}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  class="inline-flex h-9 items-center justify-center rounded-[10px] border border-slate-200 bg-white px-3.5 text-[13px] font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                  @click="emit('update:activeView', 'download')"
+                >
+                  更多素材
+                </button>
+              </div>
+              <JobProgress v-if="videoJob && (videoDownloading || videoJob.status === 'error')" :job="videoJob" class="mt-3" />
+            </div>
+
+            <!-- Right Full AI Panel -->
+            <div class="min-w-0">
+              <AiLearningPanel
+                :info="info"
+                :transcript="timedTranscriptText"
+                :external-seek="true"
+                :auto-run-trigger="autoSummarizeSeq"
+                @seek="seekAiVideo"
+                @notify="notify"
+              />
             </div>
           </div>
 

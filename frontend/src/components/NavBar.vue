@@ -12,6 +12,7 @@ const links = [
   { to: '/', label: '视频下载', icon: 'download' },
   { to: '/batch', label: '批量下载', icon: 'layers', pro: true },
   { to: '/ai', label: 'AI 总结/翻译', icon: 'sparkles', pro: true },
+  { to: '/learn', label: 'AI 学习工作台', icon: 'sparkles', pro: true },
   { to: '/pricing', label: '定价', icon: 'crown' },
 ]
 </script>

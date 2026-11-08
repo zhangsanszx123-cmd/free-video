@@ -231,6 +231,10 @@ def job_file(job_id: str):
     return FileResponse(job.filepath, filename=job.filepath.name)
 
 
+from .ai_learning_api import router as learning_router  # noqa: E402
+app.include_router(learning_router)
+
+
 if config.FRONTEND_DIST.exists():
     dist = config.FRONTEND_DIST.resolve()
     if (dist / "assets").exists():

@@ -233,3 +233,10 @@ ResultCard → TranscriptPanel
 可选旧文件适配器仍每 60 秒核对未决云任务和待删除对象：有云任务 ID 的只查询，不重新提交；不明提交保留预占供人工核对。签名 URL 到期后加 1 小时回收未知对象，OSS 生命周期兜底。重启不恢复任务正文；配置环境变化时不误操作旧对象。两种传输在账本中用 transport 区分，不会把实时 UUID 当成可查询的文件任务 ID。
 
 仅限单进程，不支持多个 worker 共享账本。新增会话隔离不涵盖原有下载路由；匿名会话也不替代账号计费系统。本期 AI 总结/翻译继续仅用已有平台字幕，不隐式消费 ASR。更多配置、部署和验收见 [video-to-text-setup.md](./video-to-text-setup.md)。
+
+## 9. AI 视频精读与助学扩展架构（v1.3）
+
+遵循开闭原则，v1.3 助学能力以独立模块挂载，原有 `/api/ai/*`、`ai.py`、`AiTools.vue` 保持零修改：
+- **后端模块**：`learning_text.py`（紧凑时间轴合并、分段与关键词检索） → `ai_learning.py`（默认 `AI_LEARNING_MODEL=deepseek-flash`，`AI_LEARNING_THINKING=disabled`，支持单次 6 万字直通与 6～18 万字 Map-Reduce 分段汇总、Markdown 导图树生成、多轮追问） → `ai_learning_api.py`（`APIRouter(prefix="/api/learn")`，使用 FastAPI 内置 `EventSourceResponse` + `ServerSentEvent`，提供 `POST /api/learn/summary`、`/mindmap`、`/chat` 及同 IP 速率限制）。
+- **文稿解析与安全边界**：按「请求直传 `transcript` → 当前签名会话拥有的已完成 `Transcription` → `read_subtitles` 免费平台字幕」顺序解析；无字幕时返回 `need_asr` 事件或 `409 NEED_ASR`，绝不在后端隐式发起收费云端 ASR，且严格校验 `transcription_auth` 会话归属防跨用户读取。
+- **前端模块**（`frontend/src/learning/`）：独立 `Marked` + `DOMPurify` + `DOMParser` 安全时间戳胶囊转换（`markdown.js`）、自研 Vue 3 + SVG 交互脑图（`MindMapView.vue`，支持 2x PNG / SVG / MD 导出）、三合一助学面板（`AiLearningPanel.vue`）、首页输入框左上角双选项卡与结果卡片双视图分流（`Home.vue` + `ResultCard.vue`）及左右分栏工作台（`pages/LearnWorkbench.vue`，路由 `/learn`）。详见 [ai-learning-plan.md](./ai-learning-plan.md)。
