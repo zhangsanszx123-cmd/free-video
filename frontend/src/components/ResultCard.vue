@@ -216,7 +216,7 @@ function handleExport() {
       props.info.uploader ? `- 作者：${props.info.uploader}` : '',
       `- 原链接：${props.info.url || '-'}`,
       '',
-      '## 文案内容',
+      '## 标题与简介',
       contentText.value || '-',
       tagsLine ? `\n**话题标签**：${tagsLine}` : '',
       '',
@@ -230,7 +230,7 @@ function handleExport() {
       props.info.uploader ? `【作者】${props.info.uploader}` : '',
       `【原链接】${props.info.url || '-'}`,
       '',
-      '【文案内容】',
+      '【标题与简介】',
       contentText.value || '-',
       tagsLine ? `\n【话题】${tagsLine}` : '',
       '',
@@ -347,11 +347,11 @@ onUnmounted(() => {
         </div>
 
         <template v-else-if="info">
-          <!-- 1. 文案内容 -->
+          <!-- 1. 标题与简介 -->
           <div class="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
             <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h4 class="text-base font-bold text-gray-900">文案内容</h4>
+                <h4 class="text-base font-bold text-gray-900">标题与简介</h4>
               </div>
               <div class="flex flex-wrap items-center gap-2">
                 <RouterLink

@@ -52,6 +52,8 @@ free-video/
 ### 4.1 yt-dlp 封装要点（downloader.py）
 
 元信息 `extract_info(download=False)` 显式设置 `writesubtitles/writeautomaticsub`，避免 B 站提取器跳过 `_get_subtitles`。薄包装的诊断 logger 识别锁定版本的登录字幕警告，标记内部 `subtitle_login_required`；解析结果的 `subtitle_notice` 将具体原因传给前端，字幕列表为空时优先显示该原因，不被通用提示覆盖。字幕提取接口返回相同原因。网络错误仍作为错误，不改第三方源码、不读取账号 Cookie。样本 BV1mAAmzqEfP 的 view 接口登记中文轨道，匿名 player 接口返回 `need_login_subtitle=true` 与空列表，不能把它描述为“视频没有字幕”。
+B 站匿名字幕兜底（`bilibili_subs.py`）：yt-dlp 报告登录字幕警告后，`extract_info` 调用 `bilibili_subs.tracks(info)`：`x/web-interface/view`（按分 P 取 cid/aid）→ `x/v2/dm/view` 取带 `auth_key` 的字幕地址，仅保留 `hdslb.com` 域名、非空地址、非机器翻译（`ai_type=0`）的轨道，结果存入 `info["bilibili_subtitles"]`；`list_subtitles` 合并这些轨道，`download_subtitle` 命中时直接下载 JSON 转 SRT，不经 yt-dlp。请求不带 Cookie；任何失败返回空并保持原有“需要登录”提示。该接口未公开，失效时跑 `pytest -m network -k login_subtitle`。
+
 | 能力 | 实现 |
 |---|---|
 | 通用参数 | `base_opts()`：quiet、`noplaylist`、超时/重试、`windowsfilenames`、可选 `proxy`(YTDLP_PROXY) |
@@ -137,7 +139,7 @@ free-video/
 ### 5.2 关键模块
 - `api.js`：`request`（统一抛出 `detail`）、`pollJob`（轮询至 done/error，返回取消函数）、`streamSSE`（POST + ReadableStream 解析 SSE）、`triggerDownload`、`fmt`（大小/时长/计数）、`extractUrls`。
 - `JobProgress.vue`：通用任务进度条 + 保存按钮，`slot` 可插入子任务列表。所有新任务型功能复用它。
-- `ResultCard.vue`：对齐 AnyToCopy 提取结果布局，分为顶栏（导出 TXT/MD、加入选题、AI 创作）及五大卡片区块：文案内容（标题、正文描述、`#话题` 标签复制、生成爆款）、视频内容（内嵌播放器、清晰度选择、下载视频、复制链接）、音频内容（在线 `<audio>` 播放与 MP3 提取下载）、视频文案（异步获取字幕文稿、纯文本/时间戳切换、复制与下载 SRT）、图片内容（封面/图集网格预览与下载）。
+- `ResultCard.vue`：对齐 AnyToCopy 提取结果布局，分为顶栏（导出 TXT/MD、加入选题、AI 创作）及五大卡片区块：标题与简介（原“文案内容”，标题、正文描述、`#话题` 标签复制、生成爆款）、视频内容（内嵌播放器、清晰度选择、下载视频、复制链接）、音频内容（在线 `<audio>` 播放与 MP3 提取下载）、视频文案（异步获取字幕文稿、纯文本/时间戳切换、复制与下载 SRT）、图片内容（封面/图集网格预览与下载）。
 - `store.js`：全局 `ui.openUpgrade(reason)` 弹出升级弹窗。
 
 ### 5.3 视觉设计系统（style.css，参考 anytocopy.com）

@@ -6,7 +6,7 @@ from typing import Callable
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError, ExtractorError
 
-from . import config, douyin
+from . import bilibili_subs, config, douyin
 from .errors import NoSubtitles, VideoError
 
 URL_RE = re.compile(r"https?://[^\s<>\"'，。！？、；）)】\]]+")
@@ -100,7 +100,11 @@ def extract_info(text: str, **opts) -> dict:
         with YoutubeDL(base_opts(skip_download=True, **options)) as ydl:
             info = _first_entry(ydl.extract_info(url, download=False))
             if diagnostics.login_required:
-                info["subtitle_login_required"] = True
+                found = bilibili_subs.tracks(info)
+                if found:
+                    info["bilibili_subtitles"] = found
+                else:
+                    info["subtitle_login_required"] = True
             return info
     except (DownloadError, ExtractorError) as e:
         raise VideoError(friendly_error(e)) from e
@@ -202,6 +206,9 @@ def list_subtitles(info: dict) -> list[dict]:
     for k, v in (info.get("automatic_captions") or {}).items():
         if v and k not in IGNORED_SUBS and k not in have and (k in SUB_PREFERENCE or k.endswith("-orig")):
             result.append({"lang": k, "name": ((v[0].get("name") if v else None) or k) + "（自动）", "auto": True})
+    for k, t in (info.get("bilibili_subtitles") or {}).items():
+        if k not in have:
+            result.append({"lang": k, "name": t["name"], "auto": t["auto"]})
     return result
 
 
@@ -330,6 +337,8 @@ def download_subtitle(text: str, outdir: Path, lang: str | None = None) -> tuple
         raise NoSubtitles("该视频没有可用字幕")
     if lang not in {s["lang"] for s in list_subtitles(info)}:
         raise VideoError("所选字幕语言不可用，请重新选择")
+    if track := (info.get("bilibili_subtitles") or {}).get(lang):
+        return bilibili_subs.download(track, outdir, info, lang), info
     outdir.mkdir(parents=True, exist_ok=True)
     opts = base_opts(
         skip_download=True,

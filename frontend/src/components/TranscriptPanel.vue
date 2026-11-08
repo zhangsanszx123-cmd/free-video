@@ -16,6 +16,8 @@ const timestamps = ref(false)
 const asrEnabled = ref(null)
 const maxMinutes = ref(60)
 const reconnect = ref(false)
+const auto = ref(false)
+let healthReady = Promise.resolve()
 let version = 0
 let controller
 let timer
@@ -57,6 +59,16 @@ async function loadSubtitles() {
   } finally {
     if (current === version) busy.value = false
   }
+  await autoTranscribe(current)
+}
+
+// Only a confirmed "no / empty subtitles" result starts speech recognition; network or auth failures never do.
+async function autoTranscribe(current) {
+  if (current !== version || !['NO_SUBTITLES', 'EMPTY_SUBTITLES'].includes(errorCode.value)) return
+  await healthReady
+  if (current !== version || asrEnabled.value === false) return
+  auto.value = true
+  await transcribe()
 }
 
 async function poll(id, current) {
@@ -149,8 +161,9 @@ watch(() => props.info, async (info) => {
   errorCode.value = ''
   timestamps.value = false
   accept(null)
+  auto.value = false
   language.value = info.default_subtitle || info.subtitles?.[0]?.lang || ''
-  api.health().then((health) => {
+  healthReady = api.health().then((health) => {
     if (props.info === info) {
       asrEnabled.value = health.asr_enabled
       maxMinutes.value = health.asr_max_minutes || 60
@@ -158,8 +171,10 @@ watch(() => props.info, async (info) => {
   }).catch(() => { if (props.info === info) asrEnabled.value = null })
   if (info.subtitles?.length) await loadSubtitles()
   else {
+    const current = version
     errorCode.value = 'NO_SUBTITLES'
     error.value = info.subtitle_notice || '未提取到可下载字幕，可从视频声音生成文字。'
+    await autoTranscribe(current)
   }
 }, { immediate: true })
 
@@ -186,7 +201,8 @@ onUnmounted(resetRequest)
         <Icon name="loader" :size="18" class="animate-spin motion-reduce:animate-none" />
         {{ reconnect ? '正在恢复任务查询' : phaseLabel }}
       </div>
-      <p class="mt-2 leading-6">{{ reconnect ? '网络连接中断，正在继续查询原任务，不会重复提交识别。' : (job?.message || '正在提取平台字幕…') }}</p>
+      <p class="mt-2 leading-6">{{ reconnect ? '网络连接中断，正在继续查询原任务，不会重复提交识别。' : (job?.message || (auto ? '未找到可用字幕，已自动从视频声音生成文字…' : '正在提取平台字幕…')) }}</p>
+      <p v-if="auto && job" class="mt-2 text-xs leading-5 text-indigo-700">未找到可用字幕，已自动从视频声音生成文字；音频将发送至云端识别，最长 {{ maxMinutes }} 分钟。</p>
       <p v-if="job" class="mt-2 text-xs leading-5 text-indigo-700">切换页面会停止查询；已提交的任务会继续处理。</p>
     </div>
 
