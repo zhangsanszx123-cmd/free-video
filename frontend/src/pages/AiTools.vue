@@ -19,6 +19,8 @@ const meta = ref(null)
 const markdown = ref('')
 const job = ref(null)
 let stop = null
+const submitting = ref(false)
+let disposed = false
 
 const html = computed(() => DOMPurify.sanitize(marked.parse(markdown.value || '')))
 
@@ -27,7 +29,7 @@ onMounted(async () => {
     aiEnabled.value = (await api.health()).ai_enabled
   } catch { /* ignore */ }
 })
-onUnmounted(() => stop?.())
+onUnmounted(() => { disposed = true; stop?.() })
 
 async function summarize() {
   loading.value = true
@@ -50,17 +52,23 @@ async function summarize() {
 }
 
 async function translate() {
+  if (busy.value) return
+  submitting.value = true
   error.value = ''
   stop?.()
   try {
-    job.value = await api.translate({ url: url.value.trim(), target_lang: targetLang.value })
+    const created = await api.translate({ url: url.value.trim(), target_lang: targetLang.value })
+    if (disposed) return
+    job.value = created
     stop = pollJob(job.value.id, (j) => (job.value = { ...job.value, ...j }), 1200)
   } catch (e) {
-    error.value = e.message
+    if (!disposed) error.value = e.message
+  } finally {
+    submitting.value = false
   }
 }
 
-const busy = computed(() => loading.value || (job.value && !['done', 'error'].includes(job.value.status)))
+const busy = computed(() => submitting.value || loading.value || (job.value && !['done', 'error'].includes(job.value.status)))
 const run = () => url.value.trim() && !busy.value && (tab.value === 'summary' ? summarize() : translate())
 async function copy() {
   await navigator.clipboard.writeText(markdown.value)
@@ -92,9 +100,9 @@ async function copy() {
           </button>
         </div>
         <form class="mt-3 flex flex-col gap-2 sm:flex-row" @submit.prevent="run">
-          <input v-model="url" type="text" inputmode="url" placeholder="粘贴带字幕的视频链接（YouTube、B站等）"
+          <input aria-label="视频链接" :disabled="busy" v-model="url" type="text" inputmode="url" placeholder="粘贴带字幕的视频链接（YouTube、B站等）"
             class="input-control flex-1 rounded-2xl px-4 py-4 text-sm sm:text-base" />
-          <select v-if="tab === 'translate'" v-model="targetLang" class="input-control rounded-2xl px-3 py-3 text-sm">
+          <select aria-label="翻译目标语言" :disabled="busy" v-if="tab === 'translate'" v-model="targetLang" class="input-control rounded-2xl px-3 py-3 text-sm">
             <option>简体中文</option><option>English</option><option>日本語</option><option>한국어</option>
           </select>
           <button type="submit" :disabled="busy || !url.trim() || !aiEnabled"
@@ -104,7 +112,7 @@ async function copy() {
           </button>
         </form>
         <p class="mt-2 text-xs text-slate-400">提示：仅支持有字幕（含自动字幕）的视频；YouTube 大多数视频都有自动字幕。</p>
-        <p v-if="error" class="mt-3 flex items-center gap-2 rounded-xl bg-rose-50 px-3 py-2.5 text-sm text-rose-600"><Icon name="alert" :size="16" /> {{ error }}</p>
+        <p role="alert" v-if="error" class="mt-3 flex items-center gap-2 rounded-xl bg-rose-50 px-3 py-2.5 text-sm text-rose-600"><Icon name="alert" :size="16" /> {{ error }}</p>
 
         <template v-if="tab === 'summary' && (markdown || status || meta)">
           <div class="mt-5 rounded-2xl border border-slate-200 bg-white p-5">

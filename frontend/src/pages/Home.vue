@@ -1,15 +1,20 @@
 <script setup>
-import { onMounted, ref, useTemplateRef } from 'vue'
+import { onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import Icon from '../components/Icon.vue'
 import ResultCard from '../components/ResultCard.vue'
 import FaqList from '../components/FaqList.vue'
 import { api } from '../api.js'
+import { useParseRequest } from '../useParseRequest.js'
 import { faqs, features, platformTable, platforms, scenarios, steps } from '../data.js'
 
 const urlInputEl = useTemplateRef('url-input')
 const url = ref('')
-const loading = ref(false)
+const { loading, parse: requestParse, cancel: cancelParse } = useParseRequest()
+const serviceState = ref('checking')
+let healthController
+let healthTimer
+let disposed = false
 const error = ref('')
 const info = ref(null)
 const parsedUrl = ref('')
@@ -28,6 +33,7 @@ const scrollTop = () => window.scrollTo({ top: 0, behavior: 'smooth' })
 
 const route = useRoute()
 onMounted(() => {
+  checkHealth()
   if (route.query.view === 'ai') activeView.value = 'ai'
   if (route.query.url) {
     url.value = String(route.query.url)
@@ -38,18 +44,17 @@ onMounted(() => {
 async function parse() {
   const target = url.value.trim()
   if (!target || loading.value) return false
-  loading.value = true
   error.value = ''
   info.value = null
   try {
-    info.value = await api.parse(target)
+    const result = await requestParse(target)
+    if (!result) return false
+    info.value = result
     parsedUrl.value = target
     return true
   } catch (e) {
     error.value = e.message
     return false
-  } finally {
-    loading.value = false
   }
 }
 
@@ -63,7 +68,7 @@ async function submitWithView(view = 'download') {
   if (loading.value) return
   const needParse = !info.value || parsedUrl.value !== target
   const ok = needParse ? await parse() : true
-  if (ok && view === 'ai') {
+  if (ok && view === 'ai' && activeView.value === 'ai' && url.value.trim() === target) {
     autoSummarizeSeq.value += 1
   }
 }
@@ -74,10 +79,29 @@ async function selectTab(view) {
   if (!target || loading.value) return
   const needParse = !info.value || parsedUrl.value !== target
   const ok = needParse ? await parse() : true
-  if (ok && view === 'ai') {
+  if (ok && view === 'ai' && activeView.value === 'ai' && url.value.trim() === target) {
     autoSummarizeSeq.value += 1
   }
 }
+function clearInput() {
+  cancelParse()
+  url.value = ''
+  info.value = null
+  parsedUrl.value = ''
+  error.value = ''
+}
+watch(url, () => { cancelParse(); error.value = '' }, { flush: 'sync' })
+async function checkHealth() {
+  healthController = new AbortController()
+  const timeout = setTimeout(() => healthController.abort(), 5000)
+  try {
+    const health = await api.health(healthController.signal)
+    serviceState.value = health.ok ? 'ready' : 'offline'
+  } catch { serviceState.value = 'offline' }
+  finally { clearTimeout(timeout) }
+  if (!disposed) healthTimer = setTimeout(checkHealth, 30000)
+}
+onUnmounted(() => { disposed = true; clearTimeout(healthTimer); healthController?.abort() })
 </script>
 
 <template>
@@ -140,8 +164,8 @@ async function selectTab(view) {
             </button>
           </div>
 
-          <span class="hidden items-center gap-1.5 text-xs font-medium text-slate-400 sm:inline-flex">
-            <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400"></span> 服务运行中 · 文件 30 分钟后自动删除
+          <span role="status" class="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500">
+            <span class="h-1.5 w-1.5 rounded-full" :class="serviceState === 'ready' ? 'bg-emerald-500' : serviceState === 'offline' ? 'bg-rose-500' : 'bg-amber-500'"></span> {{ serviceState === 'ready' ? '服务可用' : serviceState === 'offline' ? '服务连接失败' : '正在检查服务…' }} · 文件保留 30 分钟
           </span>
         </div>
 
@@ -151,6 +175,7 @@ async function selectTab(view) {
             <Icon name="link" :size="20" class="absolute left-4 top-1/2 -translate-y-1/2 text-indigo-500/80" />
             <input
               ref="url-input"
+              aria-label="视频链接或分享口令"
               v-model="url"
               type="text"
               inputmode="url"
@@ -159,7 +184,7 @@ async function selectTab(view) {
               class="input-control min-h-[60px] w-full rounded-2xl py-4 pl-12 pr-24 text-sm font-medium text-slate-900 placeholder-slate-400 sm:text-base"
             />
             <div class="absolute right-2.5 top-1/2 flex -translate-y-1/2 gap-1">
-              <button v-if="url" type="button" class="rounded-xl px-2.5 py-2 text-xs font-medium text-slate-500 hover:bg-slate-100" @click="url = ''; info = null; parsedUrl = ''; error = ''">清空</button>
+              <button v-if="url" type="button" class="min-h-11 rounded-xl px-2.5 py-2 text-xs font-medium text-slate-500 hover:bg-slate-100" @click="clearInput">清空</button>
               <button v-else type="button" class="inline-flex items-center gap-1 rounded-xl border border-indigo-100 bg-indigo-50/80 px-3 py-2 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-100" @click="paste">
                 <Icon name="clipboard" :size="14" /> 粘贴
               </button>
@@ -202,7 +227,7 @@ async function selectTab(view) {
             {{ activeView === 'ai' ? '已选：AI 视频总结模式 · 自动生成大纲与脑图' : '已选：素材与文案下载模式 · 支持视频 / MP3 / 字幕' }}
           </span>
         </div>
-        <p v-if="error" class="mt-3 flex items-start gap-2 rounded-xl bg-rose-50 px-3 py-2.5 text-sm text-rose-600">
+        <p role="alert" v-if="error" class="mt-3 flex items-start gap-2 rounded-xl bg-rose-50 px-3 py-2.5 text-sm text-rose-600">
           <Icon name="alert" :size="16" class="mt-0.5 shrink-0" /> {{ error }}
         </p>
       </div>

@@ -40,6 +40,9 @@ const toast = ref({ show: false, message: '', type: 'success' })
 let toastTimer = null
 let stopVideo = null
 let stopAudio = null
+const videoSubmitting = ref(false)
+const audioSubmitting = ref(false)
+let requestVersion = 0
 
 function notify(message, type = 'success', duration = 2600) {
   if (toastTimer) clearTimeout(toastTimer)
@@ -114,8 +117,8 @@ const audioPreviewUrl = computed(() => {
   return props.info?.audio_url || props.info?.direct?.url || ''
 })
 
-const videoDownloading = computed(() => videoJob.value && !['done', 'error'].includes(videoJob.value.status))
-const audioDownloading = computed(() => audioJob.value && !['done', 'error'].includes(audioJob.value.status))
+const videoDownloading = computed(() => videoSubmitting.value || videoJob.value && !['done', 'error'].includes(videoJob.value.status))
+const audioDownloading = computed(() => audioSubmitting.value || audioJob.value && !['done', 'error'].includes(audioJob.value.status))
 
 const displayedTranscript = computed(() => {
   if (showTimestamps.value && timedTranscriptText.value) return timedTranscriptText.value
@@ -123,6 +126,9 @@ const displayedTranscript = computed(() => {
 })
 
 watch(() => props.info, (info) => {
+  requestVersion++
+  videoSubmitting.value = false
+  audioSubmitting.value = false
   stopVideo?.()
   stopAudio?.()
   videoJob.value = null
@@ -205,9 +211,12 @@ function copyAllImageLinks() {
 async function startVideoDownload() {
   if (!props.info || videoDownloading.value) return
   error.value = ''
+  videoSubmitting.value = true
+  const current = requestVersion
   stopVideo?.()
   try {
     const created = await api.download({ url: props.info.url, quality: quality.value, kind: 'video' })
+    if (current !== requestVersion) return
     videoJob.value = created
     stopVideo = pollJob(created.id, (j) => {
       const prevStatus = videoJob.value?.status
@@ -220,17 +229,23 @@ async function startVideoDownload() {
       }
     })
   } catch (e) {
+    if (current !== requestVersion) return
     error.value = e.message
     notify(e.message, 'error')
+  } finally {
+    if (current === requestVersion) videoSubmitting.value = false
   }
 }
 
 async function startAudioDownload() {
   if (!props.info || audioDownloading.value) return
   error.value = ''
+  audioSubmitting.value = true
+  const current = requestVersion
   stopAudio?.()
   try {
     const created = await api.download({ url: props.info.url, quality: null, kind: 'audio' })
+    if (current !== requestVersion) return
     audioJob.value = created
     stopAudio = pollJob(created.id, (j) => {
       const prevStatus = audioJob.value?.status
@@ -243,8 +258,11 @@ async function startAudioDownload() {
       }
     })
   } catch (e) {
+    if (current !== requestVersion) return
     error.value = e.message
     notify(e.message, 'error')
+  } finally {
+    if (current === requestVersion) audioSubmitting.value = false
   }
 }
 
@@ -317,6 +335,7 @@ function handleExport() {
 }
 
 onUnmounted(() => {
+  requestVersion++
   stopVideo?.()
   stopAudio?.()
   if (toastTimer) clearTimeout(toastTimer)

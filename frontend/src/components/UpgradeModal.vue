@@ -1,21 +1,51 @@
 <script setup>
+import { onUnmounted, ref, watch } from 'vue'
 import Icon from './Icon.vue'
 import { ui } from '../store.js'
+
+const dialog = ref(null)
+let previousOverflow = ''
+function trapFocus(event) {
+  if (event.key !== 'Tab') return
+  const controls = [...dialog.value.querySelectorAll('button, a[href], input, select, textarea, [tabindex="0"]')]
+    .filter((el) => !el.disabled && el.getClientRects().length)
+  const first = controls[0]
+  const last = controls.at(-1)
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault()
+    last?.focus()
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first?.focus()
+  }
+}
+watch(() => ui.upgradeOpen, (open) => {
+  if (open) {
+    previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    dialog.value?.showModal()
+  } else {
+    dialog.value?.close()
+    document.body.style.overflow = previousOverflow
+  }
+}, { flush: 'post' })
+onUnmounted(() => { document.body.style.overflow = previousOverflow })
 </script>
 
 <template>
-  <Transition enter-from-class="opacity-0" leave-to-class="opacity-0" enter-active-class="transition" leave-active-class="transition">
-    <div v-if="ui.upgradeOpen" class="fixed inset-0 z-[60] flex items-end justify-center bg-slate-950/50 p-4 backdrop-blur-sm sm:items-center"
+    <dialog ref="dialog" aria-labelledby="upgrade-title" aria-describedby="upgrade-description"
+      class="upgrade-dialog m-auto w-[calc(100%-2rem)] max-w-md rounded-3xl bg-white p-0 shadow-2xl"
+      @keydown="trapFocus" @close="ui.upgradeOpen = false" @cancel.prevent="ui.upgradeOpen = false"
       @click.self="ui.upgradeOpen = false">
-      <div class="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
+      <div class="p-6">
         <div class="flex items-start justify-between">
           <span class="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-300 to-orange-500 text-white shadow-lg">
             <Icon name="gift" :size="24" />
           </span>
-          <button class="p-1 text-slate-400 hover:text-slate-600" aria-label="关闭" @click="ui.upgradeOpen = false"><Icon name="x" /></button>
+          <button autofocus class="flex h-11 w-11 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="关闭" @click="ui.upgradeOpen = false"><Icon name="x" /></button>
         </div>
-        <h3 class="mt-4 text-xl font-bold text-slate-950">{{ ui.upgradeReason || '开通 Pro' }}功能即将上线</h3>
-        <p class="mt-2 text-sm leading-relaxed text-slate-500">
+        <h3 id="upgrade-title" class="mt-4 text-xl font-bold text-slate-950">{{ ui.upgradeReason || '开通 Pro' }}功能即将上线</h3>
+        <p id="upgrade-description" class="mt-2 text-sm leading-relaxed text-slate-500">
           当前为学习演示版本，账号与在线支付尚未接入。<b class="text-slate-800">所有功能目前免费开放</b>，欢迎直接体验 4K 下载、批量 ZIP 与 AI 总结！
         </p>
         <ul class="mt-4 space-y-2 text-sm text-slate-700">
@@ -25,6 +55,5 @@ import { ui } from '../store.js'
         </ul>
         <button class="btn-primary mt-6 w-full rounded-xl py-3 font-bold" @click="ui.upgradeOpen = false">好的，先免费体验</button>
       </div>
-    </div>
-  </Transition>
+    </dialog>
 </template>

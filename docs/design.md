@@ -1,5 +1,14 @@
 # FreeVideo 方案设计文档
 
+## 2026-11-10 UI 交互实现补充
+
+- `frontend/src/useParseRequest.js` 集中管理解析请求：`AbortController` 取消 + 版本号校验，防止不响应取消的旧请求发布结果；卸载时取消。首页与学习工作台同步监听输入变化，清空操作同时清理关联状态。
+- `ResultCard` 视频/音频各自维护提交锁；结果变更与卸载递增请求版本，忽略迟到提交。`Batch`、`AiTools` 的提交锁纳入 `busy`，卸载标记阻止迟到响应启动轮询。
+- 首页独立健康检查控制器，5 秒超时、30 秒重查，卸载清理定时器与请求；API `health`、`parse` 支持可选 `AbortSignal`。
+- `UpgradeModal` 使用原生 `<dialog>.showModal()` 隔离背景交互，并补充 Tab 首尾循环；浏览器负责关闭后恢复焦点，组件同步全局开关和 body 滚动状态。
+- `MobileCtaBar` 同步根元素 `mobile-cta-visible` 类；`style.css` 仅在移动端按悬浮条显示状态预留 body 底部与滚动安全区。页脚取消固定的大块升级条留白；导航按钮补充展开状态语义。
+- 新增浏览器回归脚本 `frontend/tests/ui_regression.py`，使用现有 Python Playwright 环境，模拟全部 API，不添加运行时依赖、不调用收费服务。操作方法见 [验证记录](./ui-polish-verification.md)。
+
 > 版本：v1.2（新增字幕优先的云端转写）｜ 需求见 [requirements.md](./requirements.md)
 > 扩展功能前请先阅读本文档的「设计原则」与「扩展指南」。
 

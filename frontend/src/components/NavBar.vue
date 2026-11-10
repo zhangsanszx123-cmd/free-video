@@ -42,14 +42,14 @@ const links = [
         </RouterLink>
       </div>
 
-      <button class="rounded-lg p-2 text-slate-700 hover:bg-indigo-50 md:hidden" aria-label="打开导航菜单" @click="open = !open">
+      <button class="flex h-11 w-11 items-center justify-center rounded-lg text-slate-700 hover:bg-indigo-50 md:hidden" :aria-label="open ? '关闭导航菜单' : '打开导航菜单'" :aria-expanded="open" aria-controls="mobile-navigation" @click="open = !open">
         <Icon :name="open ? 'x' : 'menu'" :size="22" />
       </button>
     </div>
 
     <Transition enter-from-class="opacity-0 -translate-y-2" leave-to-class="opacity-0 -translate-y-2"
       enter-active-class="transition duration-200" leave-active-class="transition duration-150">
-      <div v-if="open" class="absolute inset-x-0 top-16 border-b border-slate-200 bg-white p-3 shadow-xl md:hidden">
+      <div v-if="open" id="mobile-navigation" class="absolute inset-x-0 top-16 border-b border-slate-200 bg-white p-3 shadow-xl md:hidden">
         <RouterLink v-for="l in links" :key="l.to" :to="l.to"
           class="flex items-center gap-3 rounded-xl px-3 py-3 text-base font-medium text-slate-800 hover:bg-indigo-50"
           exact-active-class="!bg-indigo-50 !text-indigo-700">

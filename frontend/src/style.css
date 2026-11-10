@@ -6,6 +6,18 @@
 
 html { scroll-behavior: smooth; -webkit-tap-highlight-color: transparent; }
 body { @apply bg-slate-50 text-slate-900 antialiased; }
+html { scroll-padding-top: 80px; }
+:where(button, a, input, textarea, select):focus-visible { outline: 3px solid #4f46e5; outline-offset: 3px; }
+.upgrade-dialog { max-height: calc(100dvh - 2rem); overflow-y: auto; }
+.upgrade-dialog::backdrop { background: rgb(2 6 23 / .5); backdrop-filter: blur(4px); }
+@media (max-width: 767px) {
+  .mobile-cta-visible { scroll-padding-bottom: calc(112px + env(safe-area-inset-bottom)); }
+  .mobile-cta-visible body { padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
 
 /* Hero background: grid lines + blue / emerald / indigo glows (AnyToCopy style) */
 .hero-bg {

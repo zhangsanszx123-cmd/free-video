@@ -1,12 +1,13 @@
 <script setup>
-import { computed, onMounted, ref, useTemplateRef } from 'vue'
+import { computed, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import '../learning.css'
 import LearnIcon from '../LearnIcon.vue'
 import LearnTranscript from '../LearnTranscript.vue'
 import AiLearningPanel from '../AiLearningPanel.vue'
 import { extractBilibiliBvid, extractYoutubeId, formatTs, platformTimeUrl } from '../learnApi.js'
-import { api, fmt } from '../../api.js'
+import { fmt } from '../../api.js'
+import { useParseRequest } from '../../useParseRequest.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -15,7 +16,7 @@ const videoEl = useTemplateRef('native-video')
 const audioEl = useTemplateRef('native-audio')
 
 const inputUrl = ref('')
-const parsing = ref(false)
+const { loading: parsing, parse: requestParse, cancel: cancelParse } = useParseRequest()
 const parseError = ref('')
 const info = ref(null)
 const transcriptResult = ref(null)
@@ -60,7 +61,6 @@ async function pasteClipboard() {
 async function startParse() {
   const raw = inputUrl.value.trim()
   if (!raw || parsing.value) return
-  parsing.value = true
   parseError.value = ''
   info.value = null
   transcriptResult.value = null
@@ -69,7 +69,8 @@ async function startParse() {
   embedAutoplay.value = false
 
   try {
-    const parsed = await api.parse(raw)
+    const parsed = await requestParse(raw)
+    if (!parsed) return
     info.value = parsed
     router.replace({ path: '/learn', query: { url: parsed.url || raw } }).catch(() => {})
   } catch (e) {
@@ -79,8 +80,6 @@ async function startParse() {
     } else {
       parseError.value = e.message || '链接解析失败，请检查分享链接是否有效'
     }
-  } finally {
-    parsing.value = false
   }
 }
 
@@ -121,6 +120,17 @@ onMounted(() => {
     startParse()
   }
 })
+function clearInput() {
+  cancelParse()
+  inputUrl.value = ''
+  info.value = null
+  transcriptResult.value = null
+  syncedResult.value = null
+  parseError.value = ''
+  router.replace({ path: '/learn' }).catch(() => {})
+}
+watch(inputUrl, () => { cancelParse(); parseError.value = '' }, { flush: 'sync' })
+onUnmounted(() => clearTimeout(toastTimer))
 </script>
 
 <template>
@@ -146,12 +156,12 @@ onMounted(() => {
         <form class="flex flex-col gap-2 sm:flex-row" @submit.prevent="startParse">
           <div class="relative flex-1">
             <LearnIcon name="link" :size="17" class="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input v-model="inputUrl" type="text" inputmode="url" autocomplete="off"
+            <input aria-label="视频链接或分享口令" v-model="inputUrl" type="text" inputmode="url" autocomplete="off"
               placeholder="粘贴视频链接或分享口令（如 https://www.bilibili.com/video/BV... 或抖音分享链接）"
               class="input-control w-full rounded-xl py-3.5 pl-10 pr-20 text-sm text-slate-900" />
             <div class="absolute right-2 top-1/2 flex -translate-y-1/2 gap-1">
               <button v-if="inputUrl" type="button" class="rounded-lg px-2 py-1 text-xs text-slate-500 hover:bg-slate-100"
-                @click="inputUrl = ''; info = null; parseError = ''">清空</button>
+                @click="clearInput">清空</button>
               <button v-else type="button" class="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-50"
                 @click="pasteClipboard">
                 <LearnIcon name="clipboard" :size="13" /> 粘贴
@@ -164,7 +174,7 @@ onMounted(() => {
             <span>{{ parsing ? '正在载入视频…' : '进入学习工作台' }}</span>
           </button>
         </form>
-        <p v-if="parseError" class="mt-2.5 flex items-center gap-2 rounded-xl bg-rose-50 px-3 py-2 text-xs text-rose-600 sm:text-sm">
+        <p role="alert" v-if="parseError" class="mt-2.5 flex items-center gap-2 rounded-xl bg-rose-50 px-3 py-2 text-xs text-rose-600 sm:text-sm">
           <LearnIcon name="alert" :size="15" class="shrink-0" /> {{ parseError }}
         </p>
       </div>

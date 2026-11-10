@@ -16,8 +16,8 @@ async function request(path, options = {}) {
 }
 
 export const api = {
-  health: () => request('/api/health'),
-  parse: (url) => request('/api/parse', { method: 'POST', body: JSON.stringify({ url }) }),
+  health: (signal) => request('/api/health', { signal }),
+  parse: (url, signal) => request('/api/parse', { method: 'POST', body: JSON.stringify({ url }), signal }),
   download: (body) => request('/api/download', { method: 'POST', body: JSON.stringify(body) }),
   batch: (body) => request('/api/batch', { method: 'POST', body: JSON.stringify(body) }),
   subtitles: (body) => request('/api/subtitles', { method: 'POST', body: JSON.stringify(body) }),

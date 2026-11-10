@@ -1,10 +1,14 @@
 <script setup>
-import { ref } from 'vue'
+import { onUnmounted, ref, watchEffect } from 'vue'
 import { useRoute } from 'vue-router'
 import Icon from './Icon.vue'
 
 const route = useRoute()
 const hidden = ref(sessionStorage.getItem('fv-cta-hidden') === '1')
+watchEffect(() => {
+  document.documentElement.classList.toggle('mobile-cta-visible', !hidden.value && route.name !== 'pricing')
+})
+onUnmounted(() => document.documentElement.classList.remove('mobile-cta-visible'))
 function close() {
   hidden.value = true
   sessionStorage.setItem('fv-cta-hidden', '1')
@@ -21,6 +25,6 @@ function close() {
       <div class="truncate text-xs text-slate-400">限时 5 折，低至 ¥0.27/天</div>
     </div>
     <RouterLink to="/pricing" class="btn-gold shrink-0 rounded-xl px-3 py-2 text-sm font-bold">立即升级</RouterLink>
-    <button class="shrink-0 p-1 text-slate-400" aria-label="关闭" @click="close"><Icon name="x" :size="16" /></button>
+    <button class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-slate-300 hover:bg-white/10" aria-label="关闭升级提示" @click="close"><Icon name="x" :size="18" /></button>
   </div>
 </template>

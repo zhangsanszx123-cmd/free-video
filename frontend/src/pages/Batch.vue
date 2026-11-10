@@ -11,9 +11,11 @@ const quality = ref(1080)
 const job = ref(null)
 const error = ref('')
 let stop = null
+const submitting = ref(false)
+let disposed = false
 
 const urls = computed(() => extractUrls(text.value))
-const busy = computed(() => job.value && !['done', 'error'].includes(job.value.status))
+const busy = computed(() => submitting.value || job.value && !['done', 'error'].includes(job.value.status))
 const statusStyle = {
   queued: ['clock', 'text-slate-400', '等待中'],
   running: ['loader', 'text-indigo-500 animate-spin', '下载中'],
@@ -23,18 +25,24 @@ const statusStyle = {
 }
 
 async function start() {
+  if (busy.value) return
   error.value = ''
   if (!urls.value.length) return (error.value = '未识别到有效链接')
   if (urls.value.length > MAX) return (error.value = `单次最多 ${MAX} 条，当前 ${urls.value.length} 条`)
   stop?.()
+  submitting.value = true
   try {
-    job.value = await api.batch({ urls: urls.value, kind: kind.value, quality: kind.value === 'video' ? quality.value : null })
+    const created = await api.batch({ urls: urls.value, kind: kind.value, quality: kind.value === 'video' ? quality.value : null })
+    if (disposed) return
+    job.value = created
     stop = pollJob(job.value.id, (j) => (job.value = { ...job.value, ...j }), 1200)
   } catch (e) {
-    error.value = e.message
+    if (!disposed) error.value = e.message
+  } finally {
+    submitting.value = false
   }
 }
-onUnmounted(() => stop?.())
+onUnmounted(() => { disposed = true; stop?.() })
 </script>
 
 <template>
@@ -47,7 +55,7 @@ onUnmounted(() => stop?.())
       </div>
 
       <div class="input-shell mt-8 rounded-[1.75rem] p-4 sm:p-6">
-        <textarea v-model="text" rows="7" :disabled="busy"
+        <textarea aria-label="批量视频链接或分享文案" v-model="text" rows="7" :disabled="busy"
           placeholder="https://www.bilibili.com/video/BV1xxxx&#10;https://www.youtube.com/watch?v=xxxx&#10;【分享文案】https://b23.tv/xxxx 也可以直接粘贴"
           class="input-control w-full resize-y rounded-2xl p-4 font-mono text-sm"></textarea>
         <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
@@ -55,11 +63,11 @@ onUnmounted(() => stop?.())
             已识别 <b :class="urls.length > MAX ? 'text-rose-600' : 'text-indigo-600'">{{ urls.length }}</b> / {{ MAX }} 条链接（已自动去重）
           </div>
           <div class="flex flex-wrap gap-2">
-            <select v-model="kind" class="input-control rounded-xl px-3 py-2 text-sm" :disabled="busy">
+            <select aria-label="下载格式" v-model="kind" class="input-control rounded-xl px-3 py-2 text-sm" :disabled="busy">
               <option value="video">视频 MP4</option>
               <option value="audio">音频 MP3</option>
             </select>
-            <select v-if="kind === 'video'" v-model="quality" class="input-control rounded-xl px-3 py-2 text-sm" :disabled="busy">
+            <select aria-label="视频清晰度" v-if="kind === 'video'" v-model="quality" class="input-control rounded-xl px-3 py-2 text-sm" :disabled="busy">
               <option :value="2160">最高 4K</option>
               <option :value="1080">最高 1080P</option>
               <option :value="720">最高 720P</option>
@@ -71,7 +79,7 @@ onUnmounted(() => stop?.())
           <Icon :name="busy ? 'loader' : 'layers'" :size="18" :class="{ 'animate-spin': busy }" />
           {{ busy ? '批量下载中…' : `开始批量下载（${urls.length} 条）` }}
         </button>
-        <p v-if="error" class="mt-3 flex items-center gap-2 text-sm text-rose-600"><Icon name="alert" :size="16" /> {{ error }}</p>
+        <p role="alert" v-if="error" class="mt-3 flex items-center gap-2 text-sm text-rose-600"><Icon name="alert" :size="16" /> {{ error }}</p>
 
         <JobProgress v-if="job" :job="job" class="mt-4">
           <ul v-if="job.items?.length" class="mt-4 divide-y divide-slate-100 rounded-xl border border-slate-100">
