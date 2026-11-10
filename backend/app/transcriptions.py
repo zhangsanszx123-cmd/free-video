@@ -225,7 +225,9 @@ class TranscriptionManager:
                 info, cues, metadata = read_subtitles(job.url, job.directory / "subtitles", job.lang)
                 self._finish(job, cues, info.get("title"), **metadata)
                 return
-            except (NoSubtitles, EmptySubtitles):
+            except (NoSubtitles, EmptySubtitles) as exc:
+                if isinstance(exc, NoSubtitles) and '登录' in str(exc):
+                    raise VideoError(str(exc)) from exc
                 if not job.allow_asr:
                     raise TranscriptionError("ASR_REQUIRED", "无可用文字字幕，请点击音频转文字", True)
             # Re-parse on the server, don't trust browser-supplied duration/id.

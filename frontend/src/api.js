@@ -20,6 +20,8 @@ export const api = {
   parse: (url, signal) => request('/api/parse', { method: 'POST', body: JSON.stringify({ url }), signal }),
   download: (body) => request('/api/download', { method: 'POST', body: JSON.stringify(body) }),
   batch: (body) => request('/api/batch', { method: 'POST', body: JSON.stringify(body) }),
+  batchTranscribe: (urls, signal) => request('/api/batch-transcriptions', { method: 'POST', body: JSON.stringify({ urls, allow_asr: true }), signal }),
+  batchTranscription: (id, signal) => request(`/api/batch-transcriptions/${id}`, { signal }),
   subtitles: (body) => request('/api/subtitles', { method: 'POST', body: JSON.stringify(body) }),
   transcript: (body, signal) => request('/api/transcript', { method: 'POST', body: JSON.stringify(body), signal }),
   transcriptionSession: () => request('/api/transcription-session'),
@@ -60,7 +62,23 @@ export function triggerDownload(href, filename = '') {
   a.rel = 'noopener'
   document.body.appendChild(a)
   a.click()
-  a.remove()
+  setTimeout(() => a.remove(), 1500)
+}
+
+/** Check JSON task metadata, then let the browser or download manager own the file transfer. */
+export async function downloadArchive(href, filename, signal) {
+  const downloadUrl = new URL(href, window.location.href)
+  const metadataUrl = new URL(downloadUrl)
+  metadataUrl.pathname = metadataUrl.pathname.replace(/\/file$/, '')
+  metadataUrl.search = ''
+  const response = await fetch(metadataUrl, { signal, cache: 'no-store' })
+  const task = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(task.detail || `\u4e0b\u8f7d\u5931\u8d25\uff08${response.status}\uff09\uff0c\u8bf7\u91cd\u8bd5`)
+  const subtitleBatch = metadataUrl.pathname.startsWith('/api/batch-transcriptions/')
+  if (!['done', 'error'].includes(task.status)) throw new Error('\u8bf7\u7b49\u5f85\u4efb\u52a1\u5b8c\u6210\u540e\u518d\u4e0b\u8f7d')
+  if (subtitleBatch ? !task.succeeded : !task.ready) throw new Error('\u6587\u4ef6\u5c1a\u672a\u5c31\u7eea\u6216\u5df2\u8fc7\u671f')
+  downloadUrl.searchParams.set('_download', `${Date.now()}-${Math.random().toString(36).slice(2)}`)
+  triggerDownload(downloadUrl.href, filename)
 }
 
 /** POST + Server-Sent Events reader (EventSource only supports GET). */

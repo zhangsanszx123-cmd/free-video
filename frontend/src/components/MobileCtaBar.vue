@@ -1,12 +1,13 @@
 <script setup>
-import { onUnmounted, ref, watchEffect } from 'vue'
+import { computed, onUnmounted, ref, watchEffect } from 'vue'
 import { useRoute } from 'vue-router'
 import Icon from './Icon.vue'
 
 const route = useRoute()
 const hidden = ref(sessionStorage.getItem('fv-cta-hidden') === '1')
+const visible = computed(() => !hidden.value && !['pricing', 'batch'].includes(route.name))
 watchEffect(() => {
-  document.documentElement.classList.toggle('mobile-cta-visible', !hidden.value && route.name !== 'pricing')
+  document.documentElement.classList.toggle('mobile-cta-visible', visible.value)
 })
 onUnmounted(() => document.documentElement.classList.remove('mobile-cta-visible'))
 function close() {
@@ -16,7 +17,7 @@ function close() {
 </script>
 
 <template>
-  <div v-if="!hidden && route.name !== 'pricing'"
+  <div v-if="visible"
     class="fixed inset-x-3 bottom-3 z-40 flex items-center gap-3 rounded-2xl bg-slate-950/95 p-3 pl-4 text-white shadow-2xl backdrop-blur md:hidden"
     style="margin-bottom: env(safe-area-inset-bottom)">
     <Icon name="crown" class="shrink-0 text-amber-400" />

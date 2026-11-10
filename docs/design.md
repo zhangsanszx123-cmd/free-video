@@ -1,6 +1,25 @@
 # FreeVideo 方案设计文档
 
+## 2026-11-10 批量字幕架构（v1.4）
+
+- `NavBar.vue` 的共享 `links` 在 `/learn` 后增加 `/batch` 批量提取入口，桌面与手机共用导航顺序及当前页面高亮。
+
+- 验收修订：`Batch.vue` 默认 `kind=subtitle`，格式列表字幕在首位。`api.js` 的 `downloadArchive` 共用于视频/音频 ZIP 和字幕 ZIP：仅 fetch JSON 任务状态，确认终态与 `ready`/`succeeded` 后，附加唯一 `_download` 参数，使用原生链接将文件传输交给浏览器或下载管理器。不再 fetch ZIP 正文、Range 预检或前端签名校验，避免 IDM 接管后产生误判，也避免大包缓存到内存。下载锚点延后移除；任务状态查询错误显示在页面，传输后的错误由浏览器/IDM 展示。
+
+- `batch_transcriptions.py` 的 `BatchTranscriptionManager` 是独立的轻量编排器，两个线程顺序提交每批链接至现有 `TranscriptionManager`。不另写云端识别实现、不绕过预算预占与去重、不自动重试收费提交；单条失败继续下一条。全局最多 10 个未结束批次。
+- `POST /api/batch-transcriptions` 接收 `urls`、显式 `allow_asr: true`；使用签名匿名会话、来源检查及创建限速。相同会话、相同有序去重链接在结果有效期内复用同一批次（含失败结果），不会隐式重新识别。
+- `GET /api/batch-transcriptions/{id}` 返回每条阶段、错误、字幕来源、正文、带时间戳正文及 SRT。`GET .../{id}/file` 仅在批次终态且有成功结果时生成 ZIP，全部接口检查归属并禁止缓存；ZIP 编号前缀防重名，清洗路径字符，只包含成功的 SRT。
+- 每条完成后复制结果到批次内存，避免早完成的单条转写先过期导致整批无法导出。批次按完成时间判断 TTL；查询/提交时清理过期批次。单进程内存状态不跨重启恢复，费用账本的未决处理沿用既有规则。
+- `transcriptions.py` 对现有「字幕需登录」的 `NoSubtitles` 异常显式阻止付费回退；真正无轨道/空轨道仍走已授权的 ASR。
+- `BatchSubtitleResults.vue` 管理字幕批次提交、轮询和恢复（localStorage 仅保存 ID），网络轮询失败仅重查同一任务。字幕使用文本插值呈现，不使用 `v-html`；ZIP 查询 JSON 状态后原生下载，单条 SRT 使用已返回结果本地导出。
+- `Batch.vue` 保留视频/音频流程；输入区 896px 居中，结果区最大 1152px，桌面左右分栏、手机纵向；费用提示放在提交按钮上方。根任务完成后才开放 ZIP，已完成字幕在其余任务运行时可预览、复制或单条下载。
+- 测试覆盖见 [批量字幕验收记录](./batch-subtitles-verification.md)。
+
 ## 2026-11-10 UI 交互实现补充
+
+- `style.css` 的 `batch-banner` 管理首页批量入口视觉；CSS 伪元素绘制点阵和圆弧，装饰不接收指针事件，整个横幅仍为单一 RouterLink。桌面左右排列，手机按钮独占一行。
+
+- 首页模式选项卡容器仅负责 flex 排列与间距；按钮自身负责视觉状态，不再叠加外层底框。
 
 - `frontend/src/useParseRequest.js` 集中管理解析请求：`AbortController` 取消 + 版本号校验，防止不响应取消的旧请求发布结果；卸载时取消。首页与学习工作台同步监听输入变化，清空操作同时清理关联状态。
 - `ResultCard` 视频/音频各自维护提交锁；结果变更与卸载递增请求版本，忽略迟到提交。`Batch`、`AiTools` 的提交锁纳入 `busy`，卸载标记阻止迟到响应启动轮询。

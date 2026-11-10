@@ -17,6 +17,7 @@ from .transcriptions import TranscriptionManager, read_subtitles, result_payload
 from .downloader import VideoError
 from .jobs import JobManager
 from .subtitles import to_plain_text
+from .batch_transcriptions import BatchTranscriptionManager
 
 logging.basicConfig(level=logging.INFO)
 # HTTP client INFO logs include signed result URLs. Never expose these in ordinary logs.
@@ -25,6 +26,7 @@ logging.getLogger("httpx2").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 manager = JobManager()
 transcription_manager = TranscriptionManager()
+batch_transcription_manager = BatchTranscriptionManager(lambda: transcription_manager)
 
 
 @asynccontextmanager
@@ -32,7 +34,9 @@ async def lifespan(_: FastAPI):
     config.DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
     manager.start_cleaner()
     transcription_manager.start()
+    batch_transcription_manager.stopping.clear()
     yield
+    batch_transcription_manager.stopping.set()
     transcription_manager.stop()
 
 
@@ -70,6 +74,37 @@ class TranslateReq(UrlReq):
 
 class TranscriptionReq(SubtitleReq):
     allow_asr: bool = False
+
+
+class BatchTranscriptionReq(BaseModel):
+    urls: list[str] = Field(min_length=1, max_length=200)
+    allow_asr: Literal[True]
+
+
+@app.post('/api/batch-transcriptions')
+def create_batch_transcription(req: BatchTranscriptionReq, request: Request, response: Response):
+    transcription_auth.check_origin(request)
+    owner = transcription_auth.owner(request, response)
+    transcription_auth.rate_limit(request, owner)
+    response.headers['Cache-Control'] = 'no-store'
+    return batch_transcription_manager.submit(owner, req.urls)
+
+
+@app.get('/api/batch-transcriptions/{job_id}')
+def batch_transcription_status(job_id: str, request: Request, response: Response):
+    transcription_auth.check_origin(request)
+    response.headers['Cache-Control'] = 'no-store'
+    job = batch_transcription_manager.get(job_id, transcription_auth.owner(request))
+    return batch_transcription_manager.public(job)
+
+
+@app.get('/api/batch-transcriptions/{job_id}/file')
+def batch_transcription_archive(job_id: str, request: Request):
+    transcription_auth.check_origin(request)
+    content = batch_transcription_manager.archive(job_id, transcription_auth.owner(request))
+    return Response(content, media_type='application/zip', headers={
+        'Content-Disposition': 'attachment; filename="FreeVideo-subtitles.zip"',
+        'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff'})
 
 
 def _bad_request(e: Exception):

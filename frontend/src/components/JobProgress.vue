@@ -1,7 +1,7 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import Icon from './Icon.vue'
-import { fileUrl, fmt, triggerDownload } from '../api.js'
+import { downloadArchive, fileUrl, fmt, triggerDownload } from '../api.js'
 
 const props = defineProps({ job: { type: Object, required: true } })
 const statusText = computed(() => ({
@@ -13,6 +13,19 @@ const statusText = computed(() => ({
 }[props.job.status] || props.job.status))
 const pct = computed(() => Math.max(2, Math.min(100, props.job.progress || 0)))
 const active = computed(() => ['queued', 'running', 'processing'].includes(props.job.status))
+const saving = ref(false)
+const downloadError = ref('')
+async function save() {
+  if (saving.value) return
+  saving.value = true
+  downloadError.value = ''
+  try {
+    if (props.job.filename?.toLowerCase().endsWith('.zip')) {
+      await downloadArchive(fileUrl(props.job.id), `FreeVideo-batch-${props.job.id}.zip`)
+    } else triggerDownload(fileUrl(props.job.id), props.job.filename)
+  } catch (e) { downloadError.value = e.message || '下载失败，请重试' }
+  finally { saving.value = false }
+}
 </script>
 
 <template>
@@ -34,11 +47,12 @@ const active = computed(() => ['queued', 'running', 'processing'].includes(props
       <div class="h-full rounded-full bg-gradient-to-r from-blue-600 via-indigo-500 to-violet-500 transition-all duration-500"
         :class="{ 'progress-stripes': active }" :style="{ width: pct + '%' }"></div>
     </div>
-    <button v-if="job.ready" class="btn-primary mt-4 flex w-full items-center justify-center gap-2 rounded-xl py-3 font-bold"
-      @click="triggerDownload(fileUrl(job.id), job.filename)">
-      <Icon name="download" :size="18" /> 保存到本地
+    <button v-if="job.ready" :disabled="saving" class="btn-primary mt-4 flex w-full items-center justify-center gap-2 rounded-xl py-3 font-bold"
+      @click="save">
+      <Icon :name="saving ? 'loader' : 'download'" :class="{ 'animate-spin': saving }" :size="18" /> {{ saving ? '正在准备下载…' : '保存到本地' }}
       <span class="max-w-[50%] truncate text-xs font-normal opacity-80">{{ job.filename }}</span>
     </button>
+    <p v-if="downloadError" role="alert" class="mt-3 rounded-xl bg-rose-50 p-3 text-sm text-rose-600">{{ downloadError }}</p>
     <slot />
   </div>
 </template>

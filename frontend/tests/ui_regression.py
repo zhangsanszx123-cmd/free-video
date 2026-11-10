@@ -57,6 +57,8 @@ class UIRegression(unittest.TestCase):
                 pending = []
                 self.page.route('**/api/' + endpoint, lambda r: pending.append(r))
                 self.page.goto(BASE + path)
+                if path == '/batch':
+                    self.page.get_by_label('\u4e0b\u8f7d\u683c\u5f0f').select_option('video')
                 if path == '/ai':
                     self.page.get_by_role('button', name='字幕翻译', exact=True).click()
                 self.page.get_by_role('textbox').fill(INFO['url'])
@@ -91,6 +93,40 @@ class UIRegression(unittest.TestCase):
         self.page.route('**/api/health', lambda r: r.fulfill(status=503, json={}))
         self.page.goto(BASE)
         expect(self.page.get_by_role('status')).to_contain_text('服务连接失败')
+
+    def test_video_zip_error_and_retry(self):
+        from io import BytesIO
+        import zipfile
+        archive = BytesIO()
+        with zipfile.ZipFile(archive, 'w') as z:
+            z.writestr('video.mp4', b'test')
+        job = dict(id='archive-test', status='done', progress=100, ready=True, filename='batch.zip')
+        self.page.route('**/api/batch', lambda r: r.fulfill(json=job))
+        metadata_error = [False]
+        self.page.route('**/api/jobs/archive-test', lambda r: r.fulfill(status=404, json=dict(detail='文件已过期')) if metadata_error[0] else r.fulfill(json=job))
+        self.page.route('**/api/jobs/archive-test/file*', lambda r: r.fulfill(body=archive.getvalue(), content_type='application/zip', headers={'Content-Disposition': 'attachment; filename=test.zip'}))
+        self.page.goto(BASE + '/batch')
+        self.page.get_by_label('下载格式').select_option('video')
+        self.page.get_by_role('textbox').fill(INFO['url'])
+        self.page.get_by_role('button', name='开始批量下载（1 条）').click()
+        save = self.page.get_by_role('button', name='保存到本地', exact=False)
+        expect(save).to_be_visible()
+        self.page.wait_for_timeout(100)
+        metadata_error[0] = True
+        self.page.evaluate("""() => {
+          const originalFetch = window.fetch;
+          window.fetch = (...args) => {
+            if (String(args[0]).includes('/file')) throw new Error('File transfer must not use fetch');
+            return originalFetch(...args);
+          };
+        }""")
+        save.click()
+        expect(self.page.get_by_role('alert')).to_contain_text('文件已过期')
+        metadata_error[0] = False
+        with self.page.expect_download() as event:
+            save.click()
+        # Mocked navigation validates handoff; real ZIP integrity is checked against the live server.
+        self.assertIn('/api/jobs/archive-test/file', event.value.url)
 
     def test_dialog_keyboard(self):
         self.page.goto(BASE)

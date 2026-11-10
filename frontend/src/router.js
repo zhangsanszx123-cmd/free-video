@@ -3,7 +3,7 @@ import Home from './pages/Home.vue'
 
 const titles = {
   home: 'FreeVideo - 万能视频下载，1800+ 平台高清视频一键保存',
-  batch: '批量下载打包 ZIP - FreeVideo',
+  batch: '批量字幕提取与素材下载 - FreeVideo',
   ai: 'AI 视频总结 & 字幕翻译 - FreeVideo',
   learn: 'AI 视频学习工作台 - 大纲总结 · 思维导图 · 视频追问 - FreeVideo',
   pricing: '会员定价 - FreeVideo Pro',

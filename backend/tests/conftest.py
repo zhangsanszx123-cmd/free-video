@@ -16,8 +16,13 @@ def tmp_downloads(tmp_path, monkeypatch):
     transcription_auth._rates.clear()
     isolated = TranscriptionManager()
     monkeypatch.setattr(main, "transcription_manager", isolated)
+    from app.batch_transcriptions import BatchTranscriptionManager
+    batches = BatchTranscriptionManager(lambda: isolated)
+    monkeypatch.setattr(main, 'batch_transcription_manager', batches)
     config.DOWNLOAD_DIR.mkdir()
     yield config.DOWNLOAD_DIR
+    batches.stopping.set()
+    batches.pool.shutdown(wait=True, cancel_futures=True)
     isolated.stop()
     isolated.pool.shutdown(wait=True, cancel_futures=True)
 

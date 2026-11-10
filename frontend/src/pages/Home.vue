@@ -128,7 +128,7 @@ onUnmounted(() => { disposed = true; clearTimeout(healthTimer); healthController
         <!-- Top Mode Switcher Row (Left-aligned with input box below, no divider line, compact 12px gap) -->
         <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div
-            class="inline-flex flex-wrap items-center gap-1.5 rounded-2xl border border-slate-200/85 bg-slate-100/75 p-1 shadow-2xs"
+            class="inline-flex flex-wrap items-center gap-1.5"
             role="tablist"
             aria-label="核心功能模式切换"
           >
@@ -232,34 +232,34 @@ onUnmounted(() => { disposed = true; clearTimeout(healthTimer); healthController
         </p>
       </div>
 
-      <!-- Batch Extraction / Download Banner (Visible soft purple-indigo gradient) -->
+      <!-- Batch extraction entry -->
       <RouterLink
         to="/batch"
-        class="group mx-auto mt-4 flex max-w-4xl flex-col gap-4 rounded-3xl border border-purple-200/80 bg-gradient-to-r from-indigo-100/90 via-purple-100/80 to-violet-100/90 p-5 text-left shadow-sm transition-all duration-200 hover:border-purple-300 hover:shadow-md sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4.5"
+        class="batch-banner group mx-auto mt-4 flex max-w-4xl flex-col gap-4 rounded-3xl p-5 text-left sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4.5"
       >
         <div class="flex items-start gap-3.5 sm:items-center">
-          <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-600 to-purple-600 text-white shadow-xs">
+          <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-white/20 bg-white/10 text-white shadow-xs">
             <Icon name="layers" :size="22" />
           </div>
           <div>
             <div class="flex items-center gap-2">
-              <span class="text-base font-extrabold tracking-wide text-slate-900 sm:text-lg">批量提取 · 打包下载</span>
-              <span class="rounded-full bg-purple-200/80 px-2 py-0.5 text-[11px] font-extrabold text-purple-800 shadow-2xs">PRO</span>
+              <span class="text-base font-extrabold tracking-wide text-white sm:text-lg">批量提取 · 打包下载</span>
+              <span class="rounded-full border border-white/20 bg-white/15 px-2 py-0.5 text-[11px] font-extrabold text-white">PRO</span>
             </div>
-            <p class="mt-0.5 text-xs text-slate-600 sm:text-sm">
+            <p class="mt-0.5 text-xs text-indigo-100 sm:text-sm">
               一次粘贴多条链接，后台自动逐条完成，无需逐个等待
             </p>
-            <div class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-600">
-              <span class="inline-flex items-center gap-1 font-semibold"><Icon name="check" :size="13" class="text-purple-600" /> 自动去重</span>
-              <span class="inline-flex items-center gap-1 font-semibold"><Icon name="check" :size="13" class="text-purple-600" /> 后台自动执行</span>
-              <span class="inline-flex items-center gap-1 font-semibold"><Icon name="check" :size="13" class="text-purple-600" /> 一键打包导出</span>
+            <div class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-indigo-100">
+              <span class="inline-flex items-center gap-1 font-semibold"><Icon name="check" :size="13" class="text-indigo-200" /> 自动去重</span>
+              <span class="inline-flex items-center gap-1 font-semibold"><Icon name="check" :size="13" class="text-indigo-200" /> 后台自动执行</span>
+              <span class="inline-flex items-center gap-1 font-semibold"><Icon name="check" :size="13" class="text-indigo-200" /> 一键打包导出</span>
             </div>
           </div>
         </div>
 
-        <div class="self-stretch sm:self-center">
-          <span class="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-purple-200 bg-white/95 px-5 py-2.5 text-sm font-extrabold text-purple-700 shadow-2xs transition group-hover:border-purple-300 group-hover:bg-purple-50 group-hover:text-purple-800 sm:w-auto">
-            进入批量提取 <Icon name="arrow" :size="15" />
+        <div class="shrink-0 self-stretch sm:self-center">
+          <span class="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-white px-5 py-2.5 text-sm font-extrabold text-indigo-700 shadow-lg shadow-indigo-950/15 transition group-hover:bg-indigo-50 sm:w-auto">
+            进入批量提取 <Icon name="arrow" :size="15" class="transition-transform group-hover:translate-x-0.5" />
           </span>
         </div>
       </RouterLink>

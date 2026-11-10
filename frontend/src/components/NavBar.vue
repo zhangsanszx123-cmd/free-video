@@ -11,6 +11,7 @@ watch(() => route.fullPath, () => (open.value = false))
 const links = [
   { to: '/', label: '视频下载', icon: 'download' },
   { to: '/learn', label: 'AI 总结', icon: 'sparkles', pro: true },
+  { to: '/batch', label: '批量提取', icon: 'layers', pro: true },
   { to: '/pricing', label: '定价', icon: 'crown' },
 ]
 </script>

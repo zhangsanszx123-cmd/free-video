@@ -35,6 +35,40 @@ html { scroll-padding-top: 80px; }
   background-image: linear-gradient(135deg, #2563eb, #6366f1 50%, #8b5cf6);
   -webkit-background-clip: text; background-clip: text; color: transparent;
 }
+
+.batch-banner {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  color: white;
+  background: linear-gradient(110deg, #3730a3 0%, #4f36d5 48%, #753bed 100%);
+  box-shadow: 0 12px 28px -14px rgb(79 70 229 / .65), inset 0 1px 0 rgb(255 255 255 / .18);
+  transition: box-shadow .2s ease, transform .2s ease;
+}
+.batch-banner::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: radial-gradient(circle, rgb(255 255 255 / .13) .85px, transparent 1.1px);
+  background-size: 16px 16px;
+}
+.batch-banner::after {
+  content: '';
+  position: absolute;
+  right: -54px;
+  top: -94px;
+  z-index: -1;
+  width: 240px;
+  height: 240px;
+  border: 22px solid rgb(255 255 255 / .06);
+  border-radius: 50%;
+  box-shadow: 0 0 0 24px rgb(255 255 255 / .025);
+  pointer-events: none;
+}
+.batch-banner:hover { transform: translateY(-1px); box-shadow: 0 16px 32px -14px rgb(79 70 229 / .7); }
+.batch-banner:focus-visible { outline-offset: 4px; }
 .text-gold {
   background-image: linear-gradient(135deg, #f59e0b, #f97316 60%, #ef4444);
   -webkit-background-clip: text; background-clip: text; color: transparent;
