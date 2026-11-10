@@ -1,0 +1,284 @@
+"""End-to-end account flows against a REAL backend + MySQL test database (no mocks for /api/auth or /api/account).
+
+1. cd frontend && npm run build
+2. Start the backend on the test database with AI/ASR disabled and relaxed limits, e.g. (bash):
+   cd backend && MYSQL_DATABASE=freevideo_test DEEPSEEK_API_KEY= DASHSCOPE_API_KEY= \
+     AUTH_REGISTER_RATE_LIMIT=100 AUTH_LOGIN_RATE_LIMIT=100 .venv/Scripts/python -m uvicorn app.main:app --port 8010
+3. python -P frontend/tests/account_ui.py      (ACCOUNT_UI_BASE overrides http://127.0.0.1:8010)
+Screenshots go to .runtime/account-ui/. Each test registers a fresh random user. Video parsing is mocked.
+"""
+import os
+import secrets
+import unittest
+from pathlib import Path
+
+from playwright.sync_api import expect, sync_playwright
+
+BASE = os.getenv('ACCOUNT_UI_BASE', 'http://127.0.0.1:8010')
+SHOTS = Path(__file__).resolve().parents[2] / '.runtime' / 'account-ui'
+PASSWORD = 'E2e pass 2026'
+INFO = dict(url='https://www.bilibili.com/video/BV1mAAmzqEfP', title='账号测试视频', platform='BiliBili',
+            qualities=[dict(height=720, label='720P')], subtitles=[], duration=60)
+
+
+def new_username():
+    return 'e2e_' + secrets.token_hex(4)
+
+
+class AccountUI(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        SHOTS.mkdir(parents=True, exist_ok=True)
+        cls.pw = sync_playwright().start()
+        cls.browser = cls.pw.chromium.launch()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.browser.close()
+        cls.pw.stop()
+
+    def setUp(self):
+        self.errors = []
+        self.contexts = []
+
+    def tearDown(self):
+        for ctx in self.contexts:
+            ctx.close()
+        self.assertEqual(self.errors, [])
+
+    def new_page(self, width=1440, height=1000, context=None):
+        if context is None:
+            context = self.browser.new_context(viewport=dict(width=width, height=height))
+            self.contexts.append(context)
+        page = context.new_page()
+        page.on('pageerror', lambda e: self.errors.append(str(e)))
+        return page
+
+    @staticmethod
+    def dialog(page):
+        return page.locator('dialog[aria-labelledby="auth-title"]')
+
+    def api_register(self, page, username, nickname=None):
+        res = page.request.post(BASE + '/api/auth/register', data=dict(username=username, password=PASSWORD, nickname=nickname))
+        self.assertTrue(res.ok, res.text())
+
+    def dialog_login(self, page, username, password=PASSWORD):
+        d = self.dialog(page)
+        d.get_by_label('用户名').fill(username)
+        d.get_by_label('密码', exact=True).fill(password)
+        d.get_by_role('button', name='登录', exact=True).click()
+
+    def dialog_register(self, page, username, nickname='', password=PASSWORD, confirm=None):
+        d = self.dialog(page)
+        d.get_by_label('用户名').fill(username)
+        d.get_by_label('昵称（可选）').fill(nickname)
+        d.get_by_label('密码', exact=True).fill(password)
+        d.get_by_label('确认密码').fill(password if confirm is None else confirm)
+        d.get_by_role('button', name='注册并登录').click()
+
+    def me(self, page):
+        return page.request.get(BASE + '/api/auth/me').json()['user']
+
+    def test_guest_dialog_register_and_return(self):
+        page = self.new_page()
+        page.goto(BASE + '/')
+        page.locator('nav').get_by_role('link', name='批量提取').click()
+        d = self.dialog(page)
+        expect(d).to_be_visible()
+        expect(d.get_by_role('status')).to_contain_text('请先登录后使用该功能')
+        self.assertEqual(page.url, BASE + '/')  # stays on the current page under the dialog
+        expect(d.get_by_label('用户名')).to_be_focused()
+        page.screenshot(path=SHOTS / 'dialog-login-desktop.png')
+        d.get_by_role('tab', name='注册').click()
+        username = new_username()
+        self.dialog_register(page, username, '端到端用户', confirm=PASSWORD + 'x')
+        expect(d.get_by_text('两次输入的密码不一致')).to_be_visible()
+        page.screenshot(path=SHOTS / 'dialog-register-desktop.png')
+        d.get_by_label('确认密码').fill(PASSWORD)
+        d.get_by_role('button', name='注册并登录').click()
+        page.wait_for_url(BASE + '/batch')
+        expect(d).to_be_hidden()
+        expect(page.get_by_role('button', name='端到端用户')).to_be_visible()
+        page.reload()
+        expect(page).to_have_url(BASE + '/batch')
+        # first load of a protected URL as guest: home + dialog; closing keeps the user on home
+        guest = self.new_page()
+        guest.goto(BASE + '/batch')
+        guest.wait_for_url(BASE + '/')
+        gd = self.dialog(guest)
+        expect(gd).to_be_visible()
+        guest.keyboard.press('Escape')
+        expect(gd).to_be_hidden()
+        guest.locator('nav').get_by_role('button', name='注册').click()
+        expect(gd.get_by_role('tab', name='注册')).to_have_attribute('aria-selected', 'true')
+        self.dialog_register(guest, username.upper())
+        expect(gd.get_by_text('该用户名已被注册')).to_be_visible()
+        gd.get_by_role('button', name='关闭登录窗口').click()
+        expect(gd).to_be_hidden()
+        self.assertEqual(guest.url, BASE + '/')
+
+    def test_dialog_login_errors_and_backup_pages(self):
+        page = self.new_page()
+        username = new_username()
+        self.api_register(page, username)
+        page.request.post(BASE + '/api/auth/logout', data={})
+        page.goto(BASE + '/')
+        page.locator('nav').get_by_role('button', name='登录', exact=True).click()
+        self.dialog_login(page, username, 'wrong password!')
+        expect(self.dialog(page).get_by_role('alert')).to_contain_text('用户名或密码错误')
+        self.dialog_login(page, username.upper())
+        expect(self.dialog(page)).to_be_hidden()
+        self.assertEqual(page.url, BASE + '/')
+        expect(page.get_by_role('button', name=username)).to_be_visible()
+        page.request.post(BASE + '/api/auth/logout', data={})
+        # backup full pages still work; external redirect targets are rejected
+        page.goto(BASE + '/login?redirect=//evil.example/steal')
+        page.locator('main').get_by_label('用户名').fill(username)
+        page.locator('main').get_by_label('密码', exact=True).fill(PASSWORD)
+        page.locator('main').get_by_role('button', name='登录', exact=True).click()
+        page.wait_for_url(BASE + '/')
+        page.goto(BASE + '/register')
+        page.wait_for_url(BASE + '/')  # logged-in users skip the backup pages
+
+    def test_home_ai_tab_resumes_after_login(self):
+        page = self.new_page()
+        page.route('**/api/parse', lambda r: r.fulfill(json=INFO))
+        page.route('**/api/transcript*', lambda r: r.fulfill(status=400, json=dict(detail='无字幕', code='NO_SUBTITLES')))
+        username = new_username()
+        self.api_register(page, username)
+        page.request.post(BASE + '/api/auth/logout', data={})
+        page.goto(BASE + '/')
+        page.get_by_role('textbox', name='视频链接或分享口令').fill(INFO['url'])
+        ai_tab = page.get_by_role('tab', name='AI 视频总结')
+        ai_tab.click()
+        d = self.dialog(page)
+        expect(d.get_by_role('status')).to_contain_text('登录后即可使用 AI 视频总结')
+        expect(ai_tab).to_have_attribute('aria-selected', 'false')
+        self.dialog_login(page, username)
+        expect(d).to_be_hidden()
+        expect(ai_tab).to_have_attribute('aria-selected', 'true')
+        expect(page.get_by_role('heading', name='提取结果')).to_be_visible()  # parse resumed in the AI view
+        self.assertEqual(page.url, BASE + '/')
+
+    def test_profile_devices_cross_tab_and_expiry(self):
+        page = self.new_page()
+        username = new_username()
+        self.api_register(page, username)
+        page.goto(BASE + '/account')
+        expect(page.get_by_role('heading', level=1)).to_have_text(username)
+        page.get_by_label('昵称').fill('  新的昵称  ')
+        page.get_by_role('button', name='保存昵称').click()
+        expect(page.get_by_role('status').filter(has_text='昵称已更新')).to_be_visible()
+        expect(page.get_by_role('button', name='新的昵称')).to_be_visible()
+        phone = self.new_page(390, 844)
+        phone.goto(BASE + '/')
+        phone.get_by_role('button', name='打开导航菜单').click()
+        phone.locator('#mobile-navigation').get_by_role('button', name='登录', exact=True).click()
+        self.dialog_login(phone, username)
+        expect(self.dialog(phone)).to_be_hidden()
+        page.reload()
+        devices = page.locator('#devices-title').locator('xpath=ancestor::section').locator('li')
+        expect(devices).to_have_count(2)
+        expect(page.get_by_text('当前设备', exact=True)).to_have_count(1)
+        page.screenshot(path=SHOTS / 'account-desktop.png', full_page=True)
+        page.get_by_role('button', name='下线', exact=True).click()
+        expect(page.get_by_role('status').filter(has_text='已下线该设备')).to_be_visible()
+        expect(devices).to_have_count(1)
+        self.assertIsNone(self.me(phone))
+        # revoked device: its next protected request is 401 -> home + "登录已过期" dialog, login returns to /account
+        phone.goto(BASE + '/account')
+        phone.wait_for_url(BASE + '/')
+        expect(self.dialog(phone)).to_be_visible()
+        # same browser, two tabs: logging out in one sends the other (on /account) home
+        tab2 = self.new_page(context=page.context)
+        tab2.goto(BASE + '/account')
+        expect(tab2.get_by_role('heading', level=1)).to_have_text('新的昵称')
+        page.get_by_role('button', name='新的昵称').click()
+        page.get_by_role('menuitem', name='退出登录').click()
+        page.wait_for_url(BASE + '/')
+        tab2.wait_for_url(BASE + '/')
+        expect(page.locator('nav').get_by_role('button', name='登录', exact=True)).to_be_visible()
+        # expiry while on a protected page (session revoked from another device)
+        self.api_register(page, new_username())
+        page.goto(BASE + '/account')
+        other = self.new_page()
+        other.request.post(BASE + '/api/auth/login', data=dict(username=self.me(page)['username'], password=PASSWORD))
+        other.request.post(BASE + '/api/account/sessions/revoke-others', data={})
+        page.get_by_label('昵称').fill('过期前')
+        page.get_by_role('button', name='保存昵称').click()
+        page.wait_for_url(BASE + '/')
+        d = self.dialog(page)
+        expect(d.get_by_role('status')).to_contain_text('登录已过期')
+        self.dialog_login(page, self.me(other)['username'])
+        page.wait_for_url(BASE + '/account')
+
+    def test_change_password(self):
+        page = self.new_page()
+        username = new_username()
+        self.api_register(page, username)
+        page.goto(BASE + '/account')
+        page.get_by_label('当前密码').first.fill('not my password')
+        page.get_by_label('新密码', exact=True).fill('Brand new 2026')
+        page.get_by_label('确认新密码').fill('Brand new 2026')
+        page.get_by_role('button', name='修改密码', exact=True).click()
+        expect(page.get_by_role('alert')).to_contain_text('当前密码不正确')
+        page.get_by_label('当前密码').first.fill(PASSWORD)
+        page.get_by_role('button', name='修改密码', exact=True).click()
+        page.wait_for_url(BASE + '/')
+        d = self.dialog(page)
+        expect(d.get_by_role('status')).to_contain_text('密码已修改')
+        self.dialog_login(page, username)
+        expect(d.get_by_role('alert')).to_contain_text('用户名或密码错误')
+        self.dialog_login(page, username, 'Brand new 2026')
+        expect(d).to_be_hidden()
+        self.assertEqual(page.url, BASE + '/')
+
+    def test_delete_account(self):
+        page = self.new_page()
+        username = new_username()
+        self.api_register(page, username)
+        page.goto(BASE + '/account')
+        delete = page.get_by_role('button', name='永久注销账号')
+        expect(delete).to_be_disabled()
+        page.get_by_label('当前密码').nth(1).fill(PASSWORD)
+        page.get_by_label('输入用户名以确认').fill(username)
+        delete.click()
+        page.wait_for_url(BASE + '/')
+        expect(page.get_by_role('status').filter(has_text='账号已注销')).to_be_visible()
+        expect(self.dialog(page)).to_be_hidden()
+        page.locator('nav').get_by_role('button', name='登录', exact=True).click()
+        self.dialog_login(page, username)
+        expect(self.dialog(page).get_by_role('alert')).to_contain_text('用户名或密码错误')
+
+    def test_mobile_dialog_and_navigation(self):
+        page = self.new_page(390, 844)
+        page.goto(BASE + '/')
+        page.get_by_role('button', name='打开导航菜单').click()
+        menu = page.locator('#mobile-navigation')
+        menu.get_by_role('button', name='免费注册').click()
+        d = self.dialog(page)
+        expect(d.get_by_role('tab', name='注册')).to_have_attribute('aria-selected', 'true')
+        box = d.bounding_box()
+        self.assertLessEqual(box['x'] + box['width'], 390)
+        self.assertGreaterEqual(box['x'], 0)
+        page.screenshot(path=SHOTS / 'dialog-register-mobile.png')
+        self.dialog_register(page, new_username(), '手机用户')
+        expect(d).to_be_hidden()
+        page.get_by_role('button', name='打开导航菜单').click()
+        expect(menu.get_by_text('手机用户')).to_be_visible()
+        page.wait_for_timeout(300)  # 200ms enter transition
+        page.screenshot(path=SHOTS / 'mobile-menu-user.png')
+        menu.get_by_role('link', name='个人中心').click()
+        page.wait_for_url(BASE + '/account')
+        expect(page.get_by_role('heading', level=1)).to_have_text('手机用户')
+        expect(page.get_by_role('button', name='关闭升级提示')).to_have_count(0)
+        self.assertTrue(page.evaluate('document.documentElement.scrollWidth <= innerWidth'))
+        page.screenshot(path=SHOTS / 'account-mobile.png', full_page=True)
+        page.get_by_role('button', name='打开导航菜单').click()
+        menu.get_by_role('button', name='退出登录').click()
+        page.wait_for_url(BASE + '/')
+        self.assertIsNone(self.me(page))
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

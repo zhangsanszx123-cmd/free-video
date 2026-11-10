@@ -1,3 +1,5 @@
+import { account } from './account.js'
+
 async function request(path, options = {}) {
   const res = await fetch(path, {
     headers: { 'Content-Type': 'application/json' },
@@ -10,6 +12,7 @@ async function request(path, options = {}) {
     error.code = data.code
     error.retryable = data.retryable
     error.status = res.status
+    if (data.code === 'AUTH_REQUIRED') account.markLoggedOut('expired')
     throw error
   }
   return data
@@ -73,6 +76,7 @@ export async function downloadArchive(href, filename, signal) {
   metadataUrl.search = ''
   const response = await fetch(metadataUrl, { signal, cache: 'no-store' })
   const task = await response.json().catch(() => ({}))
+  if (task.code === 'AUTH_REQUIRED') account.markLoggedOut('expired')
   if (!response.ok) throw new Error(task.detail || `\u4e0b\u8f7d\u5931\u8d25\uff08${response.status}\uff09\uff0c\u8bf7\u91cd\u8bd5`)
   const subtitleBatch = metadataUrl.pathname.startsWith('/api/batch-transcriptions/')
   if (!['done', 'error'].includes(task.status)) throw new Error('\u8bf7\u7b49\u5f85\u4efb\u52a1\u5b8c\u6210\u540e\u518d\u4e0b\u8f7d')
@@ -90,6 +94,7 @@ export async function streamSSE(path, body, onEvent) {
   })
   if (!res.ok) {
     const data = await res.json().catch(() => ({}))
+    if (data.code === 'AUTH_REQUIRED') account.markLoggedOut('expired')
     throw new Error(data.detail || `请求失败（${res.status}）`)
   }
   const reader = res.body.getReader()

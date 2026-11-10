@@ -56,6 +56,8 @@ class BatchSubtitleUI(unittest.TestCase):
                 r.fulfill(json=snapshot(self.done))
         self.page.route('**/api/**', lambda r: r.fulfill(json=dict(ok=True, asr_enabled=True, ai_enabled=True)))
         self.page.route('**/api/batch-transcriptions**', route)
+        self.page.route('**/api/auth/me', lambda r: r.fulfill(json=dict(user=dict(
+            id=1, username='tester', nickname='测试用户', created_at='2026-11-10T00:00:00Z'))))
         self.page.goto(BASE + '/batch')
         self.assertEqual(self.page.get_by_label('下载格式').input_value(), 'subtitle')
         self.assertEqual(self.page.get_by_label('下载格式').locator('option').first.get_attribute('value'), 'subtitle')

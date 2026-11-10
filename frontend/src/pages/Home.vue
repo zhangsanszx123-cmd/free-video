@@ -5,6 +5,7 @@ import Icon from '../components/Icon.vue'
 import ResultCard from '../components/ResultCard.vue'
 import FaqList from '../components/FaqList.vue'
 import { api } from '../api.js'
+import { account, openAuth } from '../account.js'
 import { useParseRequest } from '../useParseRequest.js'
 import { faqs, features, platformTable, platforms, scenarios, steps } from '../data.js'
 
@@ -32,9 +33,11 @@ async function paste() {
 const scrollTop = () => window.scrollTo({ top: 0, behavior: 'smooth' })
 
 const route = useRoute()
-onMounted(() => {
+onMounted(async () => {
   checkHealth()
-  if (route.query.view === 'ai') activeView.value = 'ai'
+  // AI summary requires login; guests opening a shared ?view=ai link fall back to the download view.
+  if (route.query.view === 'ai' && (await account.ensure(), account.loggedIn)) activeView.value = 'ai'
+  if (disposed) return
   if (route.query.url) {
     url.value = String(route.query.url)
     submitWithView(activeView.value)
@@ -58,7 +61,16 @@ async function parse() {
   }
 }
 
+/** AI summary is login-only (backend returns 401 too): guests get the login dialog, then the action resumes. */
+async function aiAllowed(resume) {
+  await account.ensure()
+  if (account.loggedIn || disposed) return account.loggedIn
+  openAuth({ notice: '登录后即可使用 AI 视频总结', onSuccess: () => { if (!disposed) resume() } })
+  return false
+}
+
 async function submitWithView(view = 'download') {
+  if (view === 'ai' && !(await aiAllowed(() => submitWithView('ai')))) return
   activeView.value = view
   const target = url.value.trim()
   if (!target) {
@@ -74,6 +86,7 @@ async function submitWithView(view = 'download') {
 }
 
 async function selectTab(view) {
+  if (view === 'ai' && !(await aiAllowed(() => selectTab('ai')))) return
   activeView.value = view
   const target = url.value.trim()
   if (!target || loading.value) return

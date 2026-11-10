@@ -6,6 +6,9 @@ python-dotenv==1.2.4
 pytest==9.2.0
 httpx==0.28.1
 websockets==15.0.1
+# Accounts: MySQL 8.4 driver (1.2.3 published 2026-09-17; caching_sha2 auth uses cryptography below)
+PyMySQL==1.2.3
+cryptography==50.0.2
 # Douyin: Johnserf-Seed/f2 dev branch v0.0.1.8-pw3 (PyPI 0.0.1.7 is outdated and gets 403), pinned to a commit
 f2 @ https://codeload.github.com/Johnserf-Seed/f2/zip/f6be8c0ffba9a127075bbeafe4838716650b6325
 # pin f2 transitive deps to releases older than 7 days

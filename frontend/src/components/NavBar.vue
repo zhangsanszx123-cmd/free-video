@@ -1,12 +1,16 @@
 <script setup>
-import { ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import Icon from './Icon.vue'
-import { ui } from '../store.js'
+import UserAvatar from './UserAvatar.vue'
+import { account, openAuth } from '../account.js'
 
 const open = ref(false)
+const menuOpen = ref(false)
+const loggingOut = ref(false)
+const menuEl = ref(null)
 const route = useRoute()
-watch(() => route.fullPath, () => (open.value = false))
+watch(() => route.fullPath, () => { open.value = false; menuOpen.value = false })
 
 const links = [
   { to: '/', label: '视频下载', icon: 'download' },
@@ -14,6 +18,36 @@ const links = [
   { to: '/batch', label: '批量提取', icon: 'layers', pro: true },
   { to: '/pricing', label: '定价', icon: 'crown' },
 ]
+function openDialog(tab) {
+  open.value = false
+  openAuth({ tab })
+}
+const displayName = computed(() => account.user?.nickname || account.user?.username || '')
+
+async function logout() {
+  if (loggingOut.value) return
+  loggingOut.value = true
+  try { await account.logout() } catch { /* local state is cleared even if the request failed */ } finally {
+    loggingOut.value = false
+    menuOpen.value = false
+    open.value = false
+  }
+}
+function onDocumentClick(event) {
+  if (menuOpen.value && menuEl.value && !menuEl.value.contains(event.target)) menuOpen.value = false
+}
+function onKeydown(event) {
+  if (event.key === 'Escape') menuOpen.value = false
+}
+onMounted(() => {
+  account.ensure()
+  document.addEventListener('click', onDocumentClick)
+  document.addEventListener('keydown', onKeydown)
+})
+onUnmounted(() => {
+  document.removeEventListener('click', onDocumentClick)
+  document.removeEventListener('keydown', onKeydown)
+})
 </script>
 
 <template>
@@ -37,7 +71,31 @@ const links = [
       </div>
 
       <div class="hidden items-center gap-2 md:flex">
-        <button class="rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:text-indigo-600" @click="ui.openUpgrade('登录')">登录</button>
+        <div v-if="account.loggedIn" ref="menuEl" class="relative">
+          <button type="button" class="flex items-center gap-2 rounded-xl py-1 pl-1 pr-2 text-sm font-medium text-slate-700 transition hover:bg-indigo-50"
+            :aria-expanded="menuOpen" aria-haspopup="menu" aria-controls="account-menu" @click="menuOpen = !menuOpen">
+            <UserAvatar :name="displayName" :size="32" />
+            <span class="max-w-28 truncate">{{ displayName }}</span>
+            <Icon name="chevron" :size="14" class="text-slate-400 transition" :class="menuOpen ? 'rotate-180' : ''" />
+          </button>
+          <div v-if="menuOpen" id="account-menu" role="menu"
+            class="absolute right-0 top-12 w-56 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
+            <div class="px-3 py-2">
+              <div class="truncate text-sm font-bold text-slate-900">{{ displayName }}</div>
+              <div class="truncate text-xs text-slate-500">@{{ account.user.username }}</div>
+            </div>
+            <RouterLink to="/account" role="menuitem" class="flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-600">
+              <Icon name="user" :size="16" /> 个人中心
+            </RouterLink>
+            <button type="button" role="menuitem" :disabled="loggingOut" class="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm text-slate-700 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-60" @click="logout">
+              <Icon name="logout" :size="16" /> {{ loggingOut ? '正在退出…' : '退出登录' }}
+            </button>
+          </div>
+        </div>
+        <template v-else-if="account.status !== 'unknown'">
+          <button type="button" class="rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:text-indigo-600" @click="openDialog('login')">登录</button>
+          <button type="button" class="btn-ghost px-3 py-2 text-sm font-semibold" @click="openDialog('register')">注册</button>
+        </template>
         <RouterLink to="/pricing" class="btn-gold inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-bold">
           <Icon name="crown" :size="16" /> 升级 Pro
         </RouterLink>
@@ -50,13 +108,30 @@ const links = [
 
     <Transition enter-from-class="opacity-0 -translate-y-2" leave-to-class="opacity-0 -translate-y-2"
       enter-active-class="transition duration-200" leave-active-class="transition duration-150">
-      <div v-if="open" id="mobile-navigation" class="absolute inset-x-0 top-16 border-b border-slate-200 bg-white p-3 shadow-xl md:hidden">
+      <div v-if="open" id="mobile-navigation" class="absolute inset-x-0 top-16 max-h-[calc(100dvh-4rem)] overflow-y-auto border-b border-slate-200 bg-white p-3 shadow-xl md:hidden">
+        <div v-if="account.loggedIn" class="mb-2 flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-3">
+          <UserAvatar :name="displayName" :size="40" />
+          <div class="min-w-0 flex-1">
+            <div class="truncate font-bold text-slate-900">{{ displayName }}</div>
+            <div class="truncate text-xs text-slate-500">@{{ account.user.username }}</div>
+          </div>
+          <RouterLink to="/account" class="flex min-h-11 items-center rounded-lg px-3 text-sm font-semibold text-indigo-600 hover:bg-indigo-50">个人中心</RouterLink>
+        </div>
+        <div v-else-if="account.status !== 'unknown'" class="mb-2 grid grid-cols-2 gap-2">
+          <button type="button" class="btn-ghost flex min-h-11 items-center justify-center font-semibold" @click="openDialog('login')">登录</button>
+          <button type="button" class="btn-primary flex min-h-11 items-center justify-center rounded-xl font-semibold" @click="openDialog('register')">免费注册</button>
+        </div>
         <RouterLink v-for="l in links" :key="l.to" :to="l.to"
           class="flex items-center gap-3 rounded-xl px-3 py-3 text-base font-medium text-slate-800 hover:bg-indigo-50"
           exact-active-class="!bg-indigo-50 !text-indigo-700">
           <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600"><Icon :name="l.icon" :size="18" /></span>
           {{ l.label }} <span v-if="l.pro" class="pro-badge">PRO</span>
         </RouterLink>
+        <button v-if="account.loggedIn" type="button" :disabled="loggingOut"
+          class="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-base font-medium text-slate-800 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-60" @click="logout">
+          <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-rose-50 text-rose-500"><Icon name="logout" :size="18" /></span>
+          {{ loggingOut ? '正在退出…' : '退出登录' }}
+        </button>
         <RouterLink to="/pricing" class="btn-gold mt-2 flex items-center justify-center gap-2 rounded-xl py-3 font-bold">
           <Icon name="crown" :size="18" /> 升级 Pro · 限时 5 折
         </RouterLink>

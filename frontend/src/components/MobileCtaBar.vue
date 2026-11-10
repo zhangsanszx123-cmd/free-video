@@ -5,7 +5,8 @@ import Icon from './Icon.vue'
 
 const route = useRoute()
 const hidden = ref(sessionStorage.getItem('fv-cta-hidden') === '1')
-const visible = computed(() => !hidden.value && !['pricing', 'batch'].includes(route.name))
+// route.name is undefined until the first (possibly auth-guarded) navigation resolves.
+const visible = computed(() => !hidden.value && Boolean(route.name) && !['pricing', 'batch', 'login', 'register', 'account'].includes(route.name))
 watchEffect(() => {
   document.documentElement.classList.toggle('mobile-cta-visible', visible.value)
 })

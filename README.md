@@ -4,12 +4,12 @@
 
 > 仅供个人学习研究。请尊重版权，勿下载、传播未经授权的内容；频繁下载可能触发平台风控。
 
-文档：[需求分析](docs/requirements.md) ｜ [方案设计](docs/design.md) ｜ [视频转文字配置与验收](docs/video-to-text-setup.md)
+文档：[需求分析](docs/requirements.md) ｜ [方案设计](docs/design.md) ｜ [视频转文字配置与验收](docs/video-to-text-setup.md) ｜ [账号功能验收](docs/account-verification.md)
 
 ## 技术栈
-- 后端：Python 3.12 + FastAPI，直接调用 yt-dlp Python API；抖音链接走 f2（开发分支，固定 commit，使用自动生成的匿名访客 Cookie，不登录）。均不修改源码；无数据库，内存任务队列 + 临时文件自动清理
+- 后端：Python 3.12 + FastAPI，直接调用 yt-dlp Python API；抖音链接走 f2（开发分支，固定 commit，使用自动生成的匿名访客 Cookie，不登录）。均不修改源码；内存任务队列 + 临时文件自动清理；站内账号（用户名密码）使用 **MySQL 8.x**（PyMySQL），仅保存用户与登录会话
 - 前端：Vue 3 + Vite + Tailwind CSS v4 + vue-router
-- 依赖：本机需安装 **ffmpeg**（合并音视频、转 MP3、转换字幕）
+- 依赖：本机需安装 **ffmpeg**（合并音视频、转 MP3、转换字幕）与 **MySQL 8.x**（账号功能）
 
 ## 快速开始
 
@@ -19,7 +19,8 @@ cd backend
 python -m venv .venv
 .venv\Scripts\activate            # macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
-copy .env.example .env             # 按需填写 DEEPSEEK_API_KEY / YTDLP_PROXY
+copy .env.example .env             # 填写 MYSQL_PASSWORD，按需填写 DEEPSEEK_API_KEY / YTDLP_PROXY
+mysql -u root -p < sql/schema.sql  # 创建 freevideo 与 freevideo_test 库（启动时也会自动建表）
 
 # 2. 前端构建（生产模式由 FastAPI 直接托管 dist）
 cd ../frontend
@@ -46,19 +47,26 @@ cd ../backend
 | `DASHSCOPE_API_KEY` | 音频转文字唯一云端凭证；默认 fun-asr-flash-2026-06-15，无需 OSS |
 | `ASR_DAILY_BUDGET` | 全站每日识别估算额度，默认 10 元，账本持久化 |
 | `FFMPEG_BINARY` / `FFPROBE_BINARY` | 可选完整路径，默认从 PATH 查找 |
+| `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_USER` / `MYSQL_PASSWORD` / `MYSQL_DATABASE` | 账号数据库，默认 `127.0.0.1:3306`、`root`、`freevideo`；数据库不可用时游客功能照常，账号接口返回 503 |
+| `MYSQL_TEST_DATABASE` | pytest 专用库（会清空表，必须与 `MYSQL_DATABASE` 不同），留空则跳过账号测试 |
+| `AUTH_SESSION_DAYS` | 登录有效期，默认 7 天 |
+| `AUTH_REGISTER_RATE_LIMIT` / `AUTH_LOGIN_RATE_LIMIT` | 每 IP 注册（10 分钟）/ 登录（1 分钟）次数上限，默认 5 / 10 |
 
 ## API
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | POST | `/api/parse` `{url}` | 解析元信息、清晰度、字幕、可用直链（支持分享口令中提取链接） |
 | POST | `/api/download` `{url, quality, kind}` | 创建下载任务（`kind`: video/audio） |
-| POST | `/api/batch` `{urls[], quality, kind}` | 批量下载并打包 ZIP |
+| POST | `/api/batch` `{urls[], quality, kind}` | 批量下载并打包 ZIP（需登录） |
 | POST | `/api/subtitles` `{url, lang}` | 下载 SRT 字幕 |
 | POST | `/api/transcript` `{url, lang?}` | 仅提取已有字幕，输出文字、时间戳、SRT 和来源 |
 | POST | `/api/transcriptions` `{url, lang?, allow_asr}` | 异步字幕优先；显式允许后才调用云端识别 |
 | GET | `/api/transcriptions/{id}` / `/api/transcriptions/{id}/file?format=txt\|srt` | 会话保护的转写状态／导出 |
-| POST | `/api/ai/summary` `{url}` | AI 总结（SSE 流式） |
-| POST | `/api/ai/translate` `{url, target_lang}` | 生成双语 SRT 任务 |
+| POST | `/api/ai/summary` `{url}` | AI 总结（SSE 流式，需登录） |
+| POST | `/api/ai/translate` `{url, target_lang}` | 生成双语 SRT 任务（需登录） |
+| POST | `/api/batch-transcriptions`、`/api/learn/*` | 批量字幕、AI 学习工作台（需登录） |
+| POST | `/api/auth/register` / `login` / `logout`，GET `/api/auth/me` | 注册、登录、退出、当前用户 |
+| PATCH/POST/GET/DELETE | `/api/account/profile` / `password` / `sessions` / `/api/account` | 个人中心：昵称、改密、登录设备、注销 |
 | GET | `/api/jobs/{id}` / `/api/jobs/{id}/file` | 任务进度 / 下载文件 |
 
 ## 测试
@@ -67,6 +75,7 @@ cd backend
 .venv\Scripts\python -m pytest              # 单元测试（mock yt-dlp / f2 / openai）
 .venv\Scripts\python -m pytest -m network   # 真实网络冒烟测试（B站 + 抖音）
 ```
+账号测试连接 `MYSQL_TEST_DATABASE`（真实 MySQL）；浏览器端到端流程见 [账号功能验收](docs/account-verification.md)。
 
 ## 已知限制
 - 不使用账号 Cookie：需登录的内容（如部分小红书、B站大会员画质）无法下载

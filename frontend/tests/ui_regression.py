@@ -28,6 +28,9 @@ class UIRegression(unittest.TestCase):
         self.page.on('pageerror', lambda e: self.errors.append(str(e)))
         self.page.route('**/api/**', lambda r: r.fulfill(json=dict(
             ok=True, ai_enabled=True, asr_enabled=False, text='字幕', timed_text='[00:01] 字幕')))
+        # /batch, /ai and /learn require login; account flows are covered by account_ui.py.
+        self.page.route('**/api/auth/me', lambda r: r.fulfill(json=dict(user=dict(
+            id=1, username='tester', nickname='测试用户', created_at='2026-11-10T00:00:00Z'))))
 
     def tearDown(self):
         self.page.close()
@@ -129,8 +132,9 @@ class UIRegression(unittest.TestCase):
         self.assertIn('/api/jobs/archive-test/file', event.value.url)
 
     def test_dialog_keyboard(self):
-        self.page.goto(BASE)
-        opener = self.page.get_by_role('button', name='登录', exact=True)
+        # The nav "登录" entry is now a real login link; the pricing purchase button still opens the demo dialog.
+        self.page.goto(BASE + '/pricing')
+        opener = self.page.get_by_role('button', name='开通月卡', exact=True)
         opener.click()
         dialog = self.page.get_by_role('dialog')
         expect(dialog).to_be_visible()

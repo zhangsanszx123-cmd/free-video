@@ -1,5 +1,40 @@
 # FreeVideo 方案设计文档
 
+## 0. 2026-11-10 用户账号架构（v1.5）
+
+**模块**（后端独立挂载，原有任务模型不变）：
+- `account_store.py`：PyMySQL 原生 SQL，每次调用一个短连接（connect_timeout 5s）+ 事务；`init_schema()` 执行 `backend/sql/schema.sql` 中的 `CREATE TABLE IF NOT EXISTS`（单一建表来源）。唯一索引冲突 1062 → 409「该用户名已被注册」，其它 MySQL 错误 → `AccountError` 503「账号服务暂不可用」。lifespan 启动时建表，失败只记日志。
+- `account_auth.py`：`hashlib.scrypt`（n=2^14、r=8、p=1、16 字节盐，格式 `scrypt$n$r$p$salt$hash`，`compare_digest`；未知用户名比对假哈希以统一耗时）；会话令牌 `token_urlsafe(32)`，库中只存 sha256；Cookie `freevideo_auth`（HttpOnly、SameSite=Lax、Path=/api、Secure 跟随 `SESSION_SECURE`、7 天）；`current_user` 最多每 5 分钟刷新 last_seen；`require_user` 依赖返回 401 `AUTH_REQUIRED`；来源校验规则同 `transcription_auth.check_origin`；进程内限速（注册每 IP 10 分钟 5 次、登录每 IP 每分钟 10 次、单用户名 15 分钟失败 5 次、改密/注销每用户 10 分钟 5 次，前两项可配置）。
+- `account_api.py`：`APIRouter`，全部响应 `Cache-Control: no-store`，写接口校验来源。`errors.AccountError` 由 `main.py` 统一转 `{detail, code}`。
+- 拦截：`main.py` 给 `/api/batch`、`/api/batch-transcriptions*`、`/api/ai/summary`、`/api/ai/translate` 加 `Depends(require_user)`；`ai_learning_api.router` 在 `include_router(..., dependencies=[Depends(require_user)])` 处整体拦截。`/api/jobs/*`、单条下载/转写保持开放。批量字幕/转写的数据所有者仍是匿名签名会话。
+
+**表**（utf8mb4/InnoDB，时间为 UTC `DATETIME(6)`）：`users(id, username, username_key UNIQUE, nickname, password_hash, created_at, updated_at, password_changed_at)`；`sessions(id 对外设备 ID, token_hash UNIQUE, user_id FK ON DELETE CASCADE, created_at, last_seen_at, expires_at, user_agent, ip)`。注册在一个事务内创建用户与首个会话；改密在一个事务内更新哈希并删除全部会话；登录时清理过期会话。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/auth/register` | `{username,password,nickname?}`，注册并登录 |
+| POST | `/api/auth/login` | `{username,password}`；失败统一 401「用户名或密码错误」 |
+| POST | `/api/auth/logout` | 删除当前会话并清 Cookie，可重复调用 |
+| GET | `/api/auth/me` | `{user}`，游客 `{user:null}`（失效 Cookie 顺带清除）；数据库故障 503 |
+| PATCH | `/api/account/profile` | `{nickname}` |
+| POST | `/api/account/password` | `{old_password,new_password}`，撤销全部会话 |
+| GET | `/api/account/sessions` | `{sessions:[{id,device,ip,created_at,last_seen_at,expires_at,current}]}` |
+| DELETE | `/api/account/sessions/{id}` | 只能下线自己的设备，否则 404 |
+| POST | `/api/account/sessions/revoke-others` | `{revoked}` |
+| DELETE | `/api/account` | `{password,confirm_username}`，删除用户与会话 |
+
+用户对外字段只有 `id, username, nickname, created_at`。状态码：401 未登录/凭据错误、403 跨站、404、409 重名、422 校验、429 限速、503 数据库不可用。
+
+**前端**：
+- `src/account.js`：`accountApi`、校验规则 `rules`（与后端一致，按码点计长）、`safeRedirect`（仅 `/` 开头且非 `//`、`/\`，排除登录/注册页）、reactive `account`（`status: unknown|guest|authed|error`、`ensure/refresh/login/register/logout/markLoggedOut(reason)`，reason 为 `logout|password_changed|deleted|expired`）、弹窗状态 `authModal` + `openAuth({tab, notice, redirect, onSuccess})` / `closeAuth()`。已登录身份结束或切换时（非首次解析、非游客登录）递增 `version`；BroadcastChannel `fv-auth`（storage 事件兜底）通知其它标签页重新拉取 `me`；`fv-auth-last-user` 记录上次身份，变化时清除 `fv-batch-subtitles`。`api.js`、`learnApi.js` 遇到 `AUTH_REQUIRED` 调用 `markLoggedOut()`。
+- `router.js`：`meta.requiresAuth`（`/batch`、`/ai`、`/learn`、`/account`）与 `meta.guestOnly`（备用页 `/login`、`/register`），`beforeEach` 等待 `account.ensure()`；游客访问受保护路由时 `openAuth({redirect: to.fullPath})`，站内导航返回 `false` 留在当前页，首次加载改去首页。守卫只负责交互，后端始终校验。
+- `App.vue`：挂载 `AuthModal` 与全局提示（`ui.notify`）；`RouterView` 以 `路由名:version` 为 key，已登录身份结束或切换时重建页面丢弃旧结果/轮询（游客登录不重建，便于原地继续操作）。监听 `account.user.id`：登出时受保护页面回首页；`password_changed`/`expired` 打开登录弹窗并显示原因（expired 带回原页面），`deleted` 仅提示；已登录停留在备用登录页则回跳。
+- 页面/组件：`components/AuthModal.vue`（原生 `<dialog>.showModal()`，登录/注册 Tab、焦点循环、Esc/遮罩关闭；成功后执行 `onSuccess` 或跳转 `redirect`，监听 `account.loggedIn` 保证其它标签页登录时也只完成一次）、`LoginForm.vue` / `RegisterForm.vue`（弹窗与备用页共用）、备用页 `pages/Login.vue`、`Register.vue`（`AuthShell.vue` 布局）、`Account.vue`、`FormField.vue`（标签、错误、显示密码、autofocus）、`UserAvatar.vue`（字母渐变头像）；`NavBar` 游客「登录/注册」按钮打开弹窗，登录后桌面头像下拉（个人中心/退出）、手机菜单账号卡片与退出；`Home.vue` 游客点 AI Tab 弹登录窗，成功后原地继续；`MobileCtaBar` 在账号页及首次导航完成前隐藏。
+
+**测试**：`tests/test_accounts.py` 连接真实 `MYSQL_TEST_DATABASE`（未配置则跳过；与主库同名时拒绝运行）；`conftest.py` 用 `dependency_overrides` 让其余用例以已登录身份运行，并禁止测试触碰主库。`frontend/tests/account_ui.py` 对真实后端 + 测试库跑浏览器全流程；`ui_regression.py`、`batch_subtitles_ui.py` 额外 mock `/api/auth/me` 为已登录。详见 [账号功能验收](./account-verification.md)。
+
+**限制**：限速在进程内，多进程需共享存储；每请求新建连接，高并发时可换连接池；任务未归属账号，下载历史（B2）需统一所有者模型。
+
 ## 2026-11-10 批量字幕架构（v1.4）
 
 - `NavBar.vue` 的共享 `links` 在 `/learn` 后增加 `/batch` 批量提取入口，桌面与手机共用导航顺序及当前页面高亮。
@@ -35,7 +70,7 @@
 
 ## 1. 设计原则
 1. **封装而非魔改**：解析/下载能力来自开源项目的 Python API（通用平台用 yt-dlp，抖音用 f2），只做薄封装；不 fork、不改源码，升级只需改版本号。新平台适配器统一挂在 `downloader.py` 的入口上按域名分流，`tasks.py` / `main.py` / 前端无需改动。
-2. **轻量**：无数据库，内存任务表 + 本地临时目录；单进程单端口部署。
+2. **轻量**：内存任务表 + 本地临时目录；单进程单端口部署。仅账号与登录会话使用 MySQL（v1.5，见第 0 节）。
 3. **任务化**：耗时操作（下载、批量、字幕、翻译）统一走 `JobManager` 异步任务 + 前端轮询；只有 AI 总结用 SSE 流式。
 4. **错误对用户友好**：底层异常统一转换为 `VideoError`（中文提示），由接口层返回 400 或写入任务 `error`。
 5. **前端设计系统集中**：视觉 token 在 `style.css`，文案/数据在 `data.js`，页面只做组合。
@@ -153,7 +188,7 @@ B 站匿名字幕兜底（`bilibili_subs.py`）：yt-dlp 报告登录字幕警�
 `/api/parse` 响应：`{url, id, title, description, tags[], thumbnail, images[], duration, uploader, platform, view_count, qualities[{height,label,size,pro}], has_audio, audio_url, subtitles[{lang,name,auto}], direct{url,height,ext}|null}`
 
 ### 4.6 配置（backend/.env）
-`DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL, YTDLP_PROXY, MAX_WORKERS=3, FILE_TTL_MINUTES=30, MAX_FILESIZE_MB=1024, MAX_BATCH=20, DOWNLOAD_DIR`
+`DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL, YTDLP_PROXY, MAX_WORKERS=3, FILE_TTL_MINUTES=30, MAX_FILESIZE_MB=1024, MAX_BATCH=20, DOWNLOAD_DIR`；账号：`MYSQL_HOST/PORT/USER/PASSWORD/DATABASE, MYSQL_TEST_DATABASE, AUTH_SESSION_DAYS=7, AUTH_REGISTER_RATE_LIMIT=5, AUTH_LOGIN_RATE_LIMIT=10`
 
 ## 5. 前端设计
 ### 5.1 页面与路由
@@ -195,7 +230,8 @@ B 站匿名字幕兜底（`bilibili_subs.py`）：yt-dlp 报告登录字幕警�
 | 新的下载类任务 | `tasks.py` 新增 `xxx(...) -> run(job) -> Path` → `main.py` 加路由 `manager.submit(kind, fn)` → 前端 `api.js` 加方法 + 复用 `pollJob` / `JobProgress` |
 | 新的 AI 能力 | `ai.py` 加函数（复用 `_client()`，未启用抛 `AIDisabled`）；流式用 `_sse` 模式，非流式走任务 |
 | 扩展语音识别服务商 | 在 `asr.py` 实现 Provider 并注册；保持独立转写队列、预算和鉴权，不在 `tasks.fetch_transcript` 隐式触发收费 |
-| 账号/历史/付费（B2/B3） | 引入 SQLite + 鉴权中间件；额度校验放在创建任务的路由层；前端 `ui.openUpgrade` 已是统一入口 |
+| 需登录的新接口 | 路由加 `dependencies=[Depends(account_auth.require_user)]`（或读取 `user=Depends(...)`）；前端路由加 `meta.requiresAuth` |
+| 下载历史/付费（B2/B3） | 账号已在 MySQL；新增任务/额度表放 `account_store.py`，额度校验放在创建任务的路由层；前端 `ui.openUpgrade` 已是统一入口 |
 | Cookie（B4） | `base_opts()` 按域名注入 `cookiefile`；同步修改 FAQ/页脚合规文案 |
 | 播放列表（B5） | 去掉 `noplaylist` 并复用 `batch_download` 逻辑处理 entries |
 | 新平台报错文案 | `downloader.friendly_error` 规则表 + 对应单测（抖音在 `douyin.friendly_error`） |

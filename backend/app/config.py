@@ -51,5 +51,14 @@ ASR_RATE_LIMIT = int(os.getenv("ASR_RATE_LIMIT", "10"))
 SESSION_SECRET = os.getenv("SESSION_SECRET") or None
 SESSION_SECURE = os.getenv("SESSION_SECURE", "false").lower() == "true"
 ALLOWED_ORIGINS = [s.strip().rstrip("/") for s in os.getenv("ALLOWED_ORIGINS", "").split(",") if s.strip()]
+MYSQL_HOST = os.getenv("MYSQL_HOST", "127.0.0.1")
+MYSQL_PORT = int(os.getenv("MYSQL_PORT", "3306"))
+MYSQL_USER = os.getenv("MYSQL_USER", "root")
+MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "")
+MYSQL_DATABASE = os.getenv("MYSQL_DATABASE", "freevideo")
+MYSQL_TEST_DATABASE = os.getenv("MYSQL_TEST_DATABASE") or None
+AUTH_SESSION_DAYS = int(os.getenv("AUTH_SESSION_DAYS", "7"))
+AUTH_REGISTER_RATE_LIMIT = int(os.getenv("AUTH_REGISTER_RATE_LIMIT", "5"))  # per IP per 10 minutes
+AUTH_LOGIN_RATE_LIMIT = int(os.getenv("AUTH_LOGIN_RATE_LIMIT", "10"))  # per IP per minute
 FFMPEG_BINARY = os.getenv("FFMPEG_BINARY", "ffmpeg")
 FFPROBE_BINARY = os.getenv("FFPROBE_BINARY", "ffprobe")

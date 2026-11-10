@@ -5,14 +5,15 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import ai, asr, config, downloader, tasks, transcription_auth
-from .errors import EmptySubtitles, NoSubtitles, TranscriptionError
+from . import account_store, ai, asr, config, downloader, tasks, transcription_auth
+from .account_auth import require_user
+from .errors import AccountError, EmptySubtitles, NoSubtitles, TranscriptionError
 from .transcriptions import TranscriptionManager, read_subtitles, result_payload
 from .downloader import VideoError
 from .jobs import JobManager
@@ -32,6 +33,10 @@ batch_transcription_manager = BatchTranscriptionManager(lambda: transcription_ma
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     config.DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        account_store.init_schema()
+    except AccountError:
+        logging.warning("Account database unavailable; guest features keep working, account APIs return 503")
     manager.start_cleaner()
     transcription_manager.start()
     batch_transcription_manager.stopping.clear()
@@ -41,6 +46,12 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="FreeVideo 万能视频下载", lifespan=lifespan)
+
+
+@app.exception_handler(AccountError)
+async def account_error(_: Request, exc: AccountError):
+    return JSONResponse(status_code=exc.status, content={"detail": str(exc), "code": exc.code},
+                        headers={"Cache-Control": "no-store"})
 
 
 @app.exception_handler(TranscriptionError)
@@ -81,7 +92,7 @@ class BatchTranscriptionReq(BaseModel):
     allow_asr: Literal[True]
 
 
-@app.post('/api/batch-transcriptions')
+@app.post('/api/batch-transcriptions', dependencies=[Depends(require_user)])
 def create_batch_transcription(req: BatchTranscriptionReq, request: Request, response: Response):
     transcription_auth.check_origin(request)
     owner = transcription_auth.owner(request, response)
@@ -90,7 +101,7 @@ def create_batch_transcription(req: BatchTranscriptionReq, request: Request, res
     return batch_transcription_manager.submit(owner, req.urls)
 
 
-@app.get('/api/batch-transcriptions/{job_id}')
+@app.get('/api/batch-transcriptions/{job_id}', dependencies=[Depends(require_user)])
 def batch_transcription_status(job_id: str, request: Request, response: Response):
     transcription_auth.check_origin(request)
     response.headers['Cache-Control'] = 'no-store'
@@ -98,7 +109,7 @@ def batch_transcription_status(job_id: str, request: Request, response: Response
     return batch_transcription_manager.public(job)
 
 
-@app.get('/api/batch-transcriptions/{job_id}/file')
+@app.get('/api/batch-transcriptions/{job_id}/file', dependencies=[Depends(require_user)])
 def batch_transcription_archive(job_id: str, request: Request):
     transcription_auth.check_origin(request)
     content = batch_transcription_manager.archive(job_id, transcription_auth.owner(request))
@@ -135,7 +146,7 @@ def download(req: DownloadReq):
     return manager.submit(req.kind, tasks.single_download(url, req.quality, req.kind)).to_dict()
 
 
-@app.post("/api/batch")
+@app.post("/api/batch", dependencies=[Depends(require_user)])
 def batch(req: BatchReq):
     urls = tasks.dedupe_urls(req.urls)
     if not urls:
@@ -211,7 +222,7 @@ def transcription_file(job_id: str, request: Request, format: Literal["txt", "sr
                         headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
 
 
-@app.post("/api/ai/translate")
+@app.post("/api/ai/translate", dependencies=[Depends(require_user)])
 def translate(req: TranslateReq):
     if not ai.enabled():
         raise HTTPException(503, "AI 功能未启用：请在 backend/.env 中配置 DEEPSEEK_API_KEY")
@@ -226,7 +237,7 @@ def _sse(event: str, data) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-@app.post("/api/ai/summary")
+@app.post("/api/ai/summary", dependencies=[Depends(require_user)])
 def summary(req: UrlReq):
     if not ai.enabled():
         raise HTTPException(503, "AI 功能未启用：请在 backend/.env 中配置 DEEPSEEK_API_KEY")
@@ -267,7 +278,9 @@ def job_file(job_id: str):
 
 
 from .ai_learning_api import router as learning_router  # noqa: E402
-app.include_router(learning_router)
+from .account_api import router as account_router  # noqa: E402
+app.include_router(learning_router, dependencies=[Depends(require_user)])
+app.include_router(account_router)
 
 
 if config.FRONTEND_DIST.exists():

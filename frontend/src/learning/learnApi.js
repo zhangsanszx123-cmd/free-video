@@ -1,4 +1,5 @@
 /** Dedicated API & timestamp helpers for the AI video learning suite (/api/learn/*). */
+import { account } from '../account.js'
 
 export async function streamLearnSSE(path, body, onEvent, signal) {
   const res = await fetch(path, {
@@ -13,6 +14,7 @@ export async function streamLearnSSE(path, body, onEvent, signal) {
     const err = new Error(detail || `请求失败（${res.status}）`)
     err.code = data.code
     err.status = res.status
+    if (data.code === 'AUTH_REQUIRED') account.markLoggedOut('expired')
     throw err
   }
   const reader = res.body.getReader()
@@ -74,6 +76,7 @@ export const learnApi = {
       err.code = data.code
       err.asrEnabled = data.asr_enabled
       err.status = res.status
+      if (data.code === 'AUTH_REQUIRED') account.markLoggedOut('expired')
       throw err
     }
     return data
