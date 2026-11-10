@@ -3,8 +3,12 @@ import { computed, onUnmounted, ref, watch } from 'vue'
 import { api, transcriptionFileUrl, triggerDownload } from '../api.js'
 import Icon from './Icon.vue'
 
-const props = defineProps({ info: { type: Object, required: true } })
-const emit = defineEmits(['result', 'notify'])
+const props = defineProps({
+  info: { type: Object, required: true },
+  active: { type: Boolean, default: true },
+  externalResult: { type: Object, default: null },
+})
+const emit = defineEmits(['result', 'notify', 'update:timestamps'])
 const language = ref('')
 const result = ref(null)
 const job = ref(null)
@@ -63,10 +67,12 @@ async function loadSubtitles() {
 }
 
 // Only a confirmed "no / empty subtitles" result starts speech recognition; network or auth failures never do.
+// When hidden in AI Summary view (active === false), defer automatic paid ASR to user confirmation in AiLearningPanel.
 async function autoTranscribe(current) {
+  if (!props.active) return
   if (current !== version || !['NO_SUBTITLES', 'EMPTY_SUBTITLES'].includes(errorCode.value)) return
   await healthReady
-  if (current !== version || asrEnabled.value === false) return
+  if (current !== version || !props.active || asrEnabled.value === false) return
   auto.value = true
   await transcribe()
 }
@@ -152,6 +158,26 @@ async function copy() {
     emit('notify', '复制失败，请手动选择文稿复制', 'error')
   }
 }
+
+watch(() => props.externalResult, (val) => {
+  if (val && val !== result.value) {
+    resetRequest()
+    busy.value = false
+    error.value = ''
+    errorCode.value = ''
+    accept(val)
+  }
+})
+
+watch(() => props.active, async (isActive) => {
+  if (isActive && !result.value && !busy.value && !job.value && ['NO_SUBTITLES', 'EMPTY_SUBTITLES'].includes(errorCode.value)) {
+    await autoTranscribe(version)
+  }
+})
+
+watch(timestamps, (val) => {
+  emit('update:timestamps', val)
+})
 
 watch(() => props.info, async (info) => {
   resetRequest()

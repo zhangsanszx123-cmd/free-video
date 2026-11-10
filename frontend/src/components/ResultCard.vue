@@ -4,7 +4,7 @@ import Icon from './Icon.vue'
 import JobProgress from './JobProgress.vue'
 import TranscriptPanel from './TranscriptPanel.vue'
 import AiLearningPanel from '../learning/AiLearningPanel.vue'
-import { formatTs, platformTimeUrl } from '../learning/learnApi.js'
+import { extractBilibiliBvid, extractYoutubeId, formatTs, platformTimeUrl } from '../learning/learnApi.js'
 import { api, fileUrl, fmt, pollJob, triggerDownload } from '../api.js'
 import { ui } from '../store.js'
 
@@ -20,6 +20,8 @@ const emit = defineEmits(['update:activeView'])
 const downloadVideoEl = useTemplateRef('download-video')
 const aiVideoEl = useTemplateRef('ai-video')
 const aiSeekStatus = ref('')
+const embedSeekSec = ref(0)
+const embedAutoplay = ref(false)
 
 const quality = ref(null)
 const videoJob = ref(null)
@@ -28,6 +30,7 @@ const error = ref('')
 
 const transcriptText = ref('')
 const timedTranscriptText = ref('')
+const syncedTranscriptResult = ref(null)
 const showTimestamps = ref(false)
 
 const exportOpen = ref(false)
@@ -91,6 +94,21 @@ const videoPreviewUrl = computed(() => {
   return props.info?.direct?.url || ''
 })
 
+const bvid = computed(() => extractBilibiliBvid(props.info?.url || ''))
+const youtubeId = computed(() => extractYoutubeId(props.info?.url || ''))
+
+const bilibiliIframeSrc = computed(() => {
+  if (!bvid.value) return ''
+  const auto = embedAutoplay.value ? 1 : 0
+  return `https://player.bilibili.com/player.html?bvid=${encodeURIComponent(bvid.value)}&high_quality=1&danmaku=0&autoplay=${auto}&t=${embedSeekSec.value}`
+})
+
+const youtubeIframeSrc = computed(() => {
+  if (!youtubeId.value) return ''
+  const auto = embedAutoplay.value ? 1 : 0
+  return `https://www.youtube-nocookie.com/embed/${encodeURIComponent(youtubeId.value)}?start=${embedSeekSec.value}&autoplay=${auto}`
+})
+
 const audioPreviewUrl = computed(() => {
   if (audioJob.value?.ready) return fileUrl(audioJob.value.id)
   return props.info?.audio_url || props.info?.direct?.url || ''
@@ -111,6 +129,9 @@ watch(() => props.info, (info) => {
   audioJob.value = null
   error.value = ''
   aiSeekStatus.value = ''
+  embedSeekSec.value = 0
+  embedAutoplay.value = false
+  syncedTranscriptResult.value = null
   if (!info) return
   quality.value = (info.qualities || []).find((q) => q.height <= 1080)?.height ?? info.qualities?.[0]?.height ?? null
   transcriptText.value = ''
@@ -125,19 +146,33 @@ watch(() => props.activeView, (view) => {
   }
 })
 
+function onAiTranscribed(res) {
+  if (!res) return
+  syncedTranscriptResult.value = res
+  transcriptText.value = res.text || ''
+  timedTranscriptText.value = res.timed_text || ''
+}
+
 function seekAiVideo(seconds) {
-  const tsLabel = formatTs(seconds)
+  const sec = Math.max(0, Math.floor(Number(seconds) || 0))
+  const tsLabel = formatTs(sec)
   const totalLabel = props.info?.duration ? ` / ${fmt.duration(props.info.duration)}` : ''
   aiSeekStatus.value = `▶ 已跳播 · ${tsLabel}${totalLabel}`
   const v = aiVideoEl.value
   if (v && v.getAttribute('src')) {
-    v.currentTime = seconds
+    v.currentTime = sec
     v.play?.().catch(() => {})
     notify(`🎯 左侧预览小窗已跳播至 ${tsLabel}`, 'success')
     return
   }
+  if (bvid.value || youtubeId.value) {
+    embedSeekSec.value = sec
+    embedAutoplay.value = true
+    notify(`🎯 左侧预览小窗已跳播至 ${tsLabel}`, 'success')
+    return
+  }
   if (props.info?.url) {
-    window.open(platformTimeUrl(props.info.url, seconds), '_blank', 'noopener')
+    window.open(platformTimeUrl(props.info.url, sec), '_blank', 'noopener')
     notify(`已在原平台打开 ${tsLabel} 处`, 'success')
   }
 }
@@ -335,11 +370,28 @@ onUnmounted(() => {
         <div class="flex items-center gap-3">
           <div class="h-8 w-1.5 rounded-full bg-gradient-to-b from-blue-600 to-purple-600"></div>
           <div>
-            <div class="flex flex-wrap items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2.5">
               <h3 class="text-xl font-bold text-gray-950">提取结果</h3>
-              <span class="rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-semibold text-indigo-600">
-                {{ activeView === 'ai' ? '当前：AI 视频总结' : '当前：素材与文案下载' }}
-              </span>
+              <div class="inline-flex items-center rounded-xl border border-slate-200 bg-slate-100/90 p-0.5 text-xs font-bold">
+                <button
+                  type="button"
+                  class="inline-flex cursor-pointer items-center gap-1 rounded-lg px-2.5 py-1 transition"
+                  :class="activeView !== 'ai' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 hover:text-blue-600'"
+                  @click="emit('update:activeView', 'download')"
+                >
+                  <Icon name="download" :size="13" />
+                  <span>素材与文案下载</span>
+                </button>
+                <button
+                  type="button"
+                  class="inline-flex cursor-pointer items-center gap-1 rounded-lg px-2.5 py-1 transition"
+                  :class="activeView === 'ai' ? 'bg-violet-600 text-white shadow-xs' : 'text-slate-600 hover:text-violet-600'"
+                  @click="emit('update:activeView', 'ai')"
+                >
+                  <Icon name="sparkles" :size="13" />
+                  <span>AI 视频总结</span>
+                </button>
+              </div>
             </div>
             <p class="mt-0.5 text-sm text-gray-500">文案、媒体素材和导出操作已整理完成（可在上方输入框选项卡随时切换至 AI 视频总结）</p>
           </div>
@@ -506,7 +558,7 @@ onUnmounted(() => {
                     @click="startVideoDownload"
                   >
                     <Icon name="download" :size="15" :class="{ 'animate-pulse': videoDownloading }" />
-                    <span>{{ videoDownloading ? `下载中 ${Math.round(videoJob?.progress || 0)}%` : '批量下载 ZIP' }}</span>
+                    <span>{{ videoDownloading ? `下载中 ${Math.round(videoJob?.progress || 0)}%` : '下载高清视频' }}</span>
                   </button>
                 </div>
               </div>
@@ -514,11 +566,41 @@ onUnmounted(() => {
               <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <div class="rounded-xl border border-gray-200 bg-gray-50 p-2">
                   <video
+                    v-if="videoPreviewUrl"
                     ref="download-video"
                     :src="videoPreviewUrl"
                     :poster="thumb"
                     controls
                     preload="metadata"
+                    class="mb-2 w-full rounded-lg bg-black"
+                    style="max-height: 160px"
+                    referrerpolicy="no-referrer"
+                  ></video>
+                  <iframe
+                    v-else-if="bilibiliIframeSrc && activeView !== 'ai'"
+                    :src="bilibiliIframeSrc"
+                    class="mb-2 aspect-video w-full rounded-lg border-0 bg-black"
+                    style="max-height: 160px"
+                    allowfullscreen
+                    allow="autoplay; fullscreen"
+                    referrerpolicy="no-referrer"
+                    title="Bilibili 视频预览"
+                  ></iframe>
+                  <iframe
+                    v-else-if="youtubeIframeSrc && activeView !== 'ai'"
+                    :src="youtubeIframeSrc"
+                    class="mb-2 aspect-video w-full rounded-lg border-0 bg-black"
+                    style="max-height: 160px"
+                    allowfullscreen
+                    allow="autoplay; encrypted-media"
+                    title="YouTube 视频预览"
+                  ></iframe>
+                  <video
+                    v-else
+                    ref="download-video"
+                    :poster="thumb"
+                    controls
+                    preload="none"
                     class="mb-2 w-full rounded-lg bg-black"
                     style="max-height: 160px"
                     referrerpolicy="no-referrer"
@@ -581,7 +663,10 @@ onUnmounted(() => {
 
             <TranscriptPanel
               :info="info"
+              :active="activeView !== 'ai'"
+              :external-result="syncedTranscriptResult"
               @notify="notify"
+              @update:timestamps="showTimestamps = $event"
               @result="(value) => { transcriptText = value?.text || ''; timedTranscriptText = value?.timed_text || '' }"
             />
 
@@ -607,7 +692,7 @@ onUnmounted(() => {
                     @click="downloadAllImages"
                   >
                     <Icon name="download" :size="15" />
-                    <span>批量下载 ZIP</span>
+                    <span>批量下载图片</span>
                   </button>
                   <RouterLink
                     :to="{ path: '/ai', query: { url: info.url } }"
@@ -660,11 +745,40 @@ onUnmounted(() => {
                 </span>
               </div>
               <video
+                v-if="videoPreviewUrl"
                 ref="ai-video"
                 :src="videoPreviewUrl"
                 :poster="thumb"
                 controls
                 preload="metadata"
+                class="aspect-video w-full rounded-[14px] bg-slate-950 object-contain"
+                referrerpolicy="no-referrer"
+              ></video>
+              <iframe
+                v-else-if="bilibiliIframeSrc && activeView === 'ai'"
+                :key="bilibiliIframeSrc"
+                :src="bilibiliIframeSrc"
+                class="aspect-video w-full rounded-[14px] border-0 bg-slate-950"
+                allowfullscreen
+                allow="autoplay; fullscreen"
+                referrerpolicy="no-referrer"
+                title="Bilibili 同屏预览"
+              ></iframe>
+              <iframe
+                v-else-if="youtubeIframeSrc && activeView === 'ai'"
+                :key="youtubeIframeSrc"
+                :src="youtubeIframeSrc"
+                class="aspect-video w-full rounded-[14px] border-0 bg-slate-950"
+                allowfullscreen
+                allow="autoplay; encrypted-media"
+                title="YouTube 同屏预览"
+              ></iframe>
+              <video
+                v-else
+                ref="ai-video"
+                :poster="thumb"
+                controls
+                preload="none"
                 class="aspect-video w-full rounded-[14px] bg-slate-950 object-contain"
                 referrerpolicy="no-referrer"
               ></video>
@@ -704,6 +818,7 @@ onUnmounted(() => {
                 :auto-run-trigger="autoSummarizeSeq"
                 @seek="seekAiVideo"
                 @notify="notify"
+                @transcribed="onAiTranscribed"
               />
             </div>
           </div>

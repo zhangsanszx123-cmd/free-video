@@ -146,6 +146,8 @@ def test_ai_translate_job(client, monkeypatch):
     assert data["status"] == "done" and data["filename"] == "My_Video.双语.简体中文.srt"
     text = client.get(f"/api/jobs/{job['id']}/file").text
     assert "hello\n你好" in text and "world\n世界" in text
+    assert config.DEEPSEEK_MODEL == "deepseek-flash"
+    assert ai._extra_kwargs("deepseek-flash") == {"extra_body": {"thinking": {"type": "disabled"}}}
 
 
 def test_cleanup_removes_expired(client, monkeypatch):

@@ -17,7 +17,8 @@ MAX_BATCH = int(os.getenv("MAX_BATCH", "20"))
 
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY") or None
 DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
-DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+_raw_deepseek_model = (os.getenv("DEEPSEEK_MODEL") or "deepseek-flash").strip()
+DEEPSEEK_MODEL = "deepseek-flash" if _raw_deepseek_model == "deepseek-chat" else _raw_deepseek_model
 
 # Cloud ASR is independent of DeepSeek; keep results/ledger outside DOWNLOAD_DIR.
 ASR_DIR = Path(os.getenv("ASR_DIR") or BASE_DIR / "transcriptions")

@@ -35,6 +35,13 @@ def _client() -> OpenAI:
     return OpenAI(api_key=config.DEEPSEEK_API_KEY, base_url=config.DEEPSEEK_BASE_URL, timeout=120)
 
 
+def _extra_kwargs(model: str) -> dict:
+    base = (config.DEEPSEEK_BASE_URL or "").lower()
+    if "deepseek" in base or "deepseek" in (model or "").lower():
+        return {"extra_body": {"thinking": {"type": "disabled"}}}
+    return {}
+
+
 def summarize_stream(title: str, transcript: str) -> Iterator[str]:
     if len(transcript) > MAX_SUMMARY_CHARS:
         transcript = transcript[:MAX_SUMMARY_CHARS] + "\n…（字幕过长，已截断）"
@@ -46,6 +53,7 @@ def summarize_stream(title: str, transcript: str) -> Iterator[str]:
             {"role": "system", "content": SUMMARY_PROMPT},
             {"role": "user", "content": f"视频标题：{title}\n\n字幕：\n{transcript}"},
         ],
+        **_extra_kwargs(config.DEEPSEEK_MODEL),
     )
     for chunk in stream:
         if chunk.choices and (delta := chunk.choices[0].delta.content):
@@ -61,6 +69,7 @@ def _translate_chunk(client: OpenAI, texts: list[str], lang: str) -> list[str]:
             {"role": "system", "content": TRANSLATE_PROMPT.format(lang=lang)},
             {"role": "user", "content": content},
         ],
+        **_extra_kwargs(config.DEEPSEEK_MODEL),
     )
     result = [""] * len(texts)
     for line in (resp.choices[0].message.content or "").splitlines():

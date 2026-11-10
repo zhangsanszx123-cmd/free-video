@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, ref, useTemplateRef, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import LearnIcon from './LearnIcon.vue'
 import { formatTs, parseTs } from './learnApi.js'
 import { triggerDownload } from '../api.js'
@@ -10,9 +10,11 @@ const props = defineProps({
 })
 const emit = defineEmits(['seek', 'notify'])
 
+const containerEl = useTemplateRef('container-el')
 const wrapEl = useTemplateRef('canvas-wrap')
 const svgEl = useTemplateRef('mindmap-svg')
 
+const isFullscreen = ref(false)
 const scale = ref(1)
 const panX = ref(36)
 const panY = ref(36)
@@ -355,16 +357,64 @@ function exportMarkdown() {
   emit('notify', 'Markdown 导图大纲已导出（可导入 XMind / Obsidian）')
 }
 
+async function toggleFullscreen() {
+  if (!isFullscreen.value) {
+    if (containerEl.value?.requestFullscreen) {
+      try {
+        await containerEl.value.requestFullscreen()
+      } catch {
+        // Fallback handled by CSS fixed inset-0
+      }
+    }
+    isFullscreen.value = true
+  } else {
+    if (document.fullscreenElement) {
+      try {
+        await document.exitFullscreen()
+      } catch {}
+    }
+    isFullscreen.value = false
+  }
+  nextTick(fitView)
+}
+
+function onFullscreenChange() {
+  isFullscreen.value = !!document.fullscreenElement
+  nextTick(fitView)
+}
+
+function onKeyDown(e) {
+  if (e.key === 'Escape' && isFullscreen.value && !document.fullscreenElement) {
+    isFullscreen.value = false
+    nextTick(fitView)
+  }
+}
+
 watch(() => props.markdown, () => {
   collapsed.value = new Set()
   nextTick(fitView)
 })
 
-onMounted(() => nextTick(fitView))
+onMounted(() => {
+  document.addEventListener('fullscreenchange', onFullscreenChange)
+  window.addEventListener('keydown', onKeyDown)
+  nextTick(fitView)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('fullscreenchange', onFullscreenChange)
+  window.removeEventListener('keydown', onKeyDown)
+})
 </script>
 
 <template>
-  <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+  <div
+    ref="container-el"
+    class="overflow-hidden bg-white transition-all duration-200"
+    :class="isFullscreen
+      ? 'fixed inset-0 z-[100] flex h-screen w-screen flex-col rounded-none border-0 shadow-2xl'
+      : 'rounded-2xl border border-slate-200'"
+  >
     <!-- Toolbar -->
     <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/80 px-3 py-2 text-xs">
       <div class="flex flex-wrap items-center gap-1">
@@ -408,21 +458,42 @@ onMounted(() => nextTick(fitView))
           @click="exportMarkdown">
           MD
         </button>
+        <button
+          type="button"
+          class="inline-flex h-8 items-center gap-1 rounded-lg border px-2.5 font-medium transition cursor-pointer"
+          :class="isFullscreen
+            ? 'border-indigo-300 bg-indigo-50 text-indigo-700 shadow-2xs'
+            : 'border-slate-200 bg-white text-slate-700 hover:border-indigo-300 hover:text-indigo-600'"
+          :title="isFullscreen ? '退出全屏 (ESC)' : '全屏沉浸浏览'"
+          @click="toggleFullscreen"
+        >
+          <LearnIcon :name="isFullscreen ? 'minimize' : 'maximize'" :size="13" />
+          <span>{{ isFullscreen ? '退出全屏' : '全屏' }}</span>
+        </button>
       </div>
     </div>
 
     <!-- Outline source view -->
-    <pre v-if="showSource" class="max-h-[440px] overflow-auto bg-slate-950 p-4 text-xs leading-6 text-slate-100">{{ markdown }}</pre>
+    <pre v-if="showSource"
+      class="overflow-auto bg-slate-950 p-4 text-xs leading-6 text-slate-100"
+      :class="isFullscreen ? 'flex-1' : 'max-h-[440px]'"
+    >{{ markdown }}</pre>
 
     <!-- Interactive SVG Canvas -->
     <div v-else ref="canvas-wrap"
-      class="mindmap-canvas relative h-[420px] w-full overflow-hidden sm:h-[480px]"
-      :class="dragging ? 'cursor-grabbing' : 'cursor-grab'"
+      class="mindmap-canvas relative w-full overflow-hidden"
+      :class="[
+        isFullscreen ? 'flex-1 h-full' : 'h-[420px] sm:h-[480px]',
+        dragging ? 'cursor-grabbing' : 'cursor-grab'
+      ]"
       @pointerdown="onPointerDown"
       @pointermove="onPointerMove"
       @pointerup="onPointerUp"
       @pointercancel="onPointerUp"
       @wheel="onWheel">
+      <div v-if="isFullscreen" class="pointer-events-none absolute bottom-4 left-4 z-10 rounded-xl border border-slate-200/80 bg-white/90 px-3 py-1.5 text-xs text-slate-500 shadow-sm backdrop-blur-xs">
+        全屏模式 · 按 ESC 退出
+      </div>
       <svg ref="mindmap-svg" class="h-full w-full" style="font-family: ui-sans-serif, system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif">
         <g data-viewport :transform="`translate(${panX}, ${panY}) scale(${scale})`">
           <!-- Bezier Edges -->

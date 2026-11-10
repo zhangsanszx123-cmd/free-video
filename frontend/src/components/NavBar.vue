@@ -10,9 +10,7 @@ watch(() => route.fullPath, () => (open.value = false))
 
 const links = [
   { to: '/', label: '视频下载', icon: 'download' },
-  { to: '/batch', label: '批量下载', icon: 'layers', pro: true },
-  { to: '/ai', label: 'AI 总结/翻译', icon: 'sparkles', pro: true },
-  { to: '/learn', label: 'AI 学习工作台', icon: 'sparkles', pro: true },
+  { to: '/learn', label: 'AI 总结', icon: 'sparkles', pro: true },
   { to: '/pricing', label: '定价', icon: 'crown' },
 ]
 </script>
@@ -28,7 +26,7 @@ const links = [
         </div>
       </RouterLink>
 
-      <div class="hidden items-center gap-1 md:flex">
+      <div class="hidden items-center gap-1 md:ml-auto md:mr-2 md:flex">
         <RouterLink v-for="l in links" :key="l.to" :to="l.to"
           class="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-indigo-50 hover:text-indigo-600"
           exact-active-class="!bg-indigo-50 !text-indigo-600">
