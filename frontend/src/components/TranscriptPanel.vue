@@ -2,6 +2,8 @@
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { api, transcriptionFileUrl, triggerDownload } from '../api.js'
 import Icon from './Icon.vue'
+import { account, openAuth } from '../account.js'
+import { loadMembership } from '../membership.js'
 
 const props = defineProps({
   info: { type: Object, required: true },
@@ -86,11 +88,13 @@ async function poll(id, current) {
     reconnect.value = false
     error.value = ''
     if (value.status === 'done') {
+      loadMembership()
       accept(value.result)
       busy.value = false
       return
     }
     if (value.status === 'error') {
+      loadMembership()
       error.value = value.error
       errorCode.value = value.error_code
       retryable.value = value.retryable
@@ -115,6 +119,14 @@ async function poll(id, current) {
 
 async function transcribe() {
   if (busy.value) return
+  if (!account.loggedIn) {
+    await account.ensure()
+    if (!account.loggedIn) {
+      const expected = version
+      openAuth({ notice: '登录后可使用每月免费语音识别额度', onSuccess: () => { if (expected === version && props.active) transcribe() } })
+      return
+    }
+  }
   const current = resetRequest()
   busy.value = true
   error.value = ''

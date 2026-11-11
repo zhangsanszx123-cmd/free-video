@@ -46,10 +46,10 @@ onUnmounted(() => { document.body.style.overflow = previousOverflow })
         </div>
         <h3 id="upgrade-title" class="mt-4 text-xl font-bold text-slate-950">{{ ui.upgradeReason || '开通 Pro' }}功能即将上线</h3>
         <p id="upgrade-description" class="mt-2 text-sm leading-relaxed text-slate-500">
-          当前为学习演示版本，在线支付尚未接入。<b class="text-slate-800">所有功能目前免费开放</b>：4K 下载可直接使用，批量 ZIP 与 AI 总结注册登录后即可体验！
+          在线支付暂未开放。<b class="text-slate-800">视频下载与平台字幕提取免费</b>；语音识别按会员月度额度扣除时长，免费用户也可登录后使用每月赠送额度。会员开通暂由管理员处理。
         </p>
         <ul class="mt-4 space-y-2 text-sm text-slate-700">
-          <li v-for="t in ['4K/8K 原画质，音视频自动合并', '批量下载 20 条，一键打包 ZIP', 'AI 视频总结 + 双语字幕翻译', '多任务并行，专属高速通道']" :key="t" class="flex items-center gap-2">
+          <li v-for="t in ['视频下载、音频提取与平台字幕免费', '月度额度在北京时间每月 1 日重置', '任务记录与转录文本保存 30 天', '已有文稿复制和导出不重复扣时长']" :key="t" class="flex items-center gap-2">
             <Icon name="check" :size="16" class="text-emerald-500" /> {{ t }}
           </li>
         </ul>

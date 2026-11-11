@@ -3,6 +3,8 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import Icon from './Icon.vue'
 import UserAvatar from './UserAvatar.vue'
+import QuotaCard from './QuotaCard.vue'
+import { loadMembership } from '../membership.js'
 import { account, openAuth } from '../account.js'
 
 const open = ref(false)
@@ -23,6 +25,8 @@ function openDialog(tab) {
   openAuth({ tab })
 }
 const displayName = computed(() => account.user?.nickname || account.user?.username || '')
+watch(menuOpen, value => { if (value) loadMembership() })
+watch(open, value => { if (value && account.loggedIn) loadMembership() })
 
 async function logout() {
   if (loggingOut.value) return
@@ -79,11 +83,14 @@ onUnmounted(() => {
             <Icon name="chevron" :size="14" class="text-slate-400 transition" :class="menuOpen ? 'rotate-180' : ''" />
           </button>
           <div v-if="menuOpen" id="account-menu" role="menu"
-            class="absolute right-0 top-12 w-56 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
+            class="absolute right-0 top-12 max-h-[calc(100dvh-6rem)] w-80 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
             <div class="px-3 py-2">
               <div class="truncate text-sm font-bold text-slate-900">{{ displayName }}</div>
               <div class="truncate text-xs text-slate-500">@{{ account.user.username }}</div>
             </div>
+            <QuotaCard compact class="mb-2" />
+            <RouterLink to="/history?status=active" role="menuitem" class="flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm text-slate-700 hover:bg-indigo-50"><Icon name="clock" :size="16" />执行中任务</RouterLink>
+            <RouterLink to="/history" role="menuitem" class="flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm text-slate-700 hover:bg-indigo-50"><Icon name="file" :size="16" />历史任务</RouterLink>
             <RouterLink to="/account" role="menuitem" class="flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-600">
               <Icon name="user" :size="16" /> 个人中心
             </RouterLink>
@@ -121,6 +128,11 @@ onUnmounted(() => {
           <button type="button" class="btn-ghost flex min-h-11 items-center justify-center font-semibold" @click="openDialog('login')">登录</button>
           <button type="button" class="btn-primary flex min-h-11 items-center justify-center rounded-xl font-semibold" @click="openDialog('register')">免费注册</button>
         </div>
+        <template v-if="account.loggedIn">
+          <QuotaCard compact class="mb-2" />
+          <RouterLink to="/history?status=active" class="flex min-h-11 items-center gap-3 rounded-xl px-3 py-3 font-medium text-slate-800 hover:bg-indigo-50"><Icon name="clock" :size="18" />执行中任务</RouterLink>
+          <RouterLink to="/history" class="flex min-h-11 items-center gap-3 rounded-xl px-3 py-3 font-medium text-slate-800 hover:bg-indigo-50"><Icon name="file" :size="18" />历史任务</RouterLink>
+        </template>
         <RouterLink v-for="l in links" :key="l.to" :to="l.to"
           class="flex items-center gap-3 rounded-xl px-3 py-3 text-base font-medium text-slate-800 hover:bg-indigo-50"
           exact-active-class="!bg-indigo-50 !text-indigo-700">
@@ -133,7 +145,7 @@ onUnmounted(() => {
           {{ loggingOut ? '正在退出…' : '退出登录' }}
         </button>
         <RouterLink to="/pricing" class="btn-gold mt-2 flex items-center justify-center gap-2 rounded-xl py-3 font-bold">
-          <Icon name="crown" :size="18" /> 升级 Pro · 限时 5 折
+          <Icon name="crown" :size="18" /> 查看会员套餐
         </RouterLink>
       </div>
     </Transition>

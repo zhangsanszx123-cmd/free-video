@@ -14,9 +14,9 @@ import time
 import uuid
 import wave
 
-from . import asr, config, downloader
+from . import asr, config, downloader, membership
 from .asr_ledger import Ledger
-from .errors import EmptySubtitles, NoSubtitles, TranscriptionError, VideoError
+from .errors import AccountError, EmptySubtitles, NoSubtitles, TranscriptionError, VideoError
 from .storage import TemporaryStorage
 from .subtitles import parse_srt, to_plain_text, to_srt
 
@@ -177,16 +177,46 @@ class TranscriptionManager:
                 if existing.reuse_id and existing.reuse_id in self.jobs:
                     return self.jobs[existing.reuse_id]
                 return existing
+            uid = membership.user_id(owner)
+            if uid is not None:
+                saved = membership.record(uid, fingerprint=key)
+                if saved:
+                    return self._restore(saved, owner)
             active = sum(j.status not in TERMINAL for j in self.jobs.values())
             if active >= config.ASR_WORKERS + config.ASR_MAX_QUEUE:
                 raise TranscriptionError("QUEUE_FULL", "转写任务已满，请稍后重试", True, 429)
             if allow_asr and not self.recovery_ready:
                 raise TranscriptionError("RECOVERING", "识别服务正在核对未决任务，请稍后重试", True, 503)
             job = Transcription(uuid.uuid4().hex, owner, key, url, lang, allow_asr)
+            membership.create_record(job)
             self.jobs[job.id] = job
             self.keys[key] = job.id
             self.pool.submit(self._run, job)
             return job
+
+    @staticmethod
+    def _restore(row, owner):
+        if row['payload'].get('reuse_id'):
+            target = membership.record(membership.user_id(owner), job_id=row['payload']['reuse_id'])
+            if not target:
+                raise TranscriptionError('NOT_FOUND', '任务已过期', status=404)
+            row = target
+        job = Transcription(row['id'], owner, row['fingerprint'], row['url'], None, True)
+        for key, value in row['payload'].items():
+            if key != 'id' and hasattr(job, key):
+                setattr(job, key, value)
+        return job
+
+    def save_native(self, uid, url, lang, info, payload):
+        owner = f'user:{uid}'
+        key = self._key(owner, url, lang, False)
+        with self.lock:
+            if membership.record(uid, fingerprint=key):
+                return
+            job = Transcription(uuid.uuid4().hex, owner, key, url, lang, False, status='done', stage='done',
+                                message='提取完成', finished_at=time.time(), title=(info.get('title') or '视频文稿')[:255], result=payload)
+            membership.create_record(job)
+            membership.persist(job, info)
 
     @staticmethod
     def _key(owner, url, lang, allow_asr):
@@ -196,6 +226,15 @@ class TranscriptionManager:
         self.cleanup()
         with self.lock:
             job = self.jobs.get(job_id)
+            uid = membership.user_id(owner)
+            if job and job.owner == owner and uid is not None and job.error_code == 'SUBMISSION_UNCERTAIN':
+                saved = membership.record(uid, job_id=job_id)
+                if saved and saved['status'] == 'done':
+                    return self._restore(saved, owner)
+            if not job and uid is not None:
+                saved = membership.record(uid, job_id=job_id)
+                if saved:
+                    return self._restore(saved, owner)
             if not job or job.owner != owner:
                 raise TranscriptionError("NOT_FOUND", "任务不存在或已过期", status=404)
             if job.reuse_id:
@@ -207,8 +246,14 @@ class TranscriptionManager:
 
     def _update(self, job, **fields):
         with self.lock:
+            changed = any(getattr(job, key) != value for key, value in fields.items() if key in ('status', 'stage', 'title'))
             for key, value in fields.items():
                 setattr(job, key, value)
+            if changed and job.status not in TERMINAL:
+                try:
+                    membership.persist(job)
+                except AccountError:
+                    log.warning('history update pending for %s', job.id)
 
     def _run(self, job):
         reserved = False
@@ -218,11 +263,15 @@ class TranscriptionManager:
         direct = asr.is_direct()
         object_key = None if streaming or direct else config.OSS_PREFIX + job.id + ".mp3"
         storage = None
+        user_reserved = False
+        uid = membership.user_id(job.owner)
+        error_fields = None
         try:
             self._update(job, status="running", stage="subtitles", message="正在检查可下载字幕…")
             job.directory.mkdir(parents=True, exist_ok=True)
             try:
                 info, cues, metadata = read_subtitles(job.url, job.directory / "subtitles", job.lang)
+                membership.persist(job, info)
                 self._finish(job, cues, info.get("title"), **metadata)
                 return
             except (NoSubtitles, EmptySubtitles) as exc:
@@ -238,16 +287,27 @@ class TranscriptionManager:
             canonical_key = self._key(job.owner, canonical, None, job.allow_asr)
             with self.lock:
                 previous = self.jobs.get(self.keys.get(canonical_key))
+                if not previous and uid is not None:
+                    cached = membership.record(uid, fingerprint=canonical_key)
+                    if cached:
+                        previous = self._restore(cached, job.owner)
+                        self.jobs[previous.id] = previous
                 if previous and previous.id != job.id and (previous.status != "error" or not previous.retryable):
                     # Alias requests read the same owned job, including its exports.
                     self._update(job, reuse_id=previous.id, status="done", stage="done", finished_at=time.time())
+                    membership.save_alias(job, previous.id)
                     return
                 self.keys[canonical_key] = job.id
+                membership.alias_key(job, canonical_key)
             asr.require_enabled()
             if info.get("duration") and info["duration"] > config.ASR_MAX_DURATION:
                 raise TranscriptionError("AUDIO_TOO_LONG", f"音频超过 {config.ASR_MAX_DURATION // 60} 分钟上限")
             self._update(job, title=info.get("title") or job.title, stage="audio", message="正在获取视频音轨…")
             path, duration = acquire_audio(canonical, job.directory, lambda **f: self._update(job, **f))
+            membership.persist(job, {**info, 'duration': duration})
+            if uid is not None:
+                membership.reserve(uid, job.id, duration, canonical_key)
+                user_reserved = True
             if direct:
                 segments = prepare_segments(path, duration)
                 self.ledger.reserve(job.id, sum(math.ceil(d) for _, d, _ in segments), None, canonical_key)
@@ -369,21 +429,22 @@ class TranscriptionManager:
                     return
                 self._stop.wait(config.ASR_POLL_SECONDS)
             raise TranscriptionError("CLOUD_PENDING", "云端识别尚未结束，已保留额度并继续后台核对；请勿重复提交")
-        except (TranscriptionError, VideoError) as e:
+        except (TranscriptionError, VideoError, AccountError) as e:
             if uncertain:
                 # Keep the user from retrying into a second paid request.
                 message = ("识别连接已中断，无法自动续传；已保留额度，请管理员核对后再试" if streaming
                            else "云端提交或处理状态待核对，已保留额度；请勿重复提交")
                 error = TranscriptionError("SUBMISSION_UNCERTAIN", message)
             else:
-                error = e if isinstance(e, TranscriptionError) else TranscriptionError("VIDEO_FAILED", str(e), True)
-            self._update(job, status="error", stage="error", error=str(error), error_code=error.code,
-                         retryable=error.retryable, message="处理失败", finished_at=time.time())
+                error = (e if isinstance(e, TranscriptionError) else TranscriptionError(e.code, str(e))
+                         if isinstance(e, AccountError) else TranscriptionError("VIDEO_FAILED", str(e), True))
+            error_fields = dict(status="error", stage="error", error=str(error), error_code=error.code,
+                                retryable=error.retryable, message="处理失败", finished_at=time.time())
         except Exception:
             # Avoid logging exceptions containing signed URLs or provider response bodies.
-            self._update(job, status="error", stage="error", error="转写处理异常，请联系管理员核对",
-                         error_code="SUBMISSION_UNCERTAIN" if uncertain else "INTERNAL_ERROR",
-                         retryable=not uncertain, finished_at=time.time())
+            error_fields = dict(status="error", stage="error", error="转写处理异常，请联系管理员核对",
+                                error_code="SUBMISSION_UNCERTAIN" if uncertain else "INTERNAL_ERROR",
+                                retryable=not uncertain, finished_at=time.time())
             log.error("transcription %s failed (details redacted)", job.id)
         finally:
             if reserved:
@@ -403,8 +464,22 @@ class TranscriptionManager:
                     (job.directory / name).unlink(missing_ok=True)
                 except OSError:
                     pass
-            if job.result is not None and job.status != "error":
-                self._update(job, status="done", stage="done", message="提取完成", finished_at=time.time())
+            if error_fields:
+                with self.lock:
+                    try:
+                        membership.complete(job, {**job.public(), **error_fields},
+                                            'unknown' if uncertain and user_reserved else 'released')
+                    except (AccountError, TranscriptionError):
+                        log.error('user quota/history reconciliation pending for %s', job.id)
+                        error_fields.update(error='任务或额度状态待核对，请勿重复提交',
+                                            error_code='SUBMISSION_UNCERTAIN', retryable=False)
+                    self._update(job, **error_fields)
+            elif job.result is not None and job.status != "error":
+                try:
+                    self._publish(job)
+                except (AccountError, TranscriptionError):
+                    self._update(job, status='error', stage='error', error='结果保存失败，额度等待后台核对，请勿重复提交',
+                                 error_code='SUBMISSION_UNCERTAIN', retryable=False, finished_at=time.time())
 
     def _finish(self, job, cues, title, source, language=None):
         self._update(job, stage="export", message="正在生成文字与字幕…")
@@ -414,6 +489,13 @@ class TranscriptionManager:
             content = payload["text"] if ext == "txt" else payload["srt"]
             (job.directory / f"transcript.{ext}").write_text(content, encoding="utf-8", newline="\n")
         self._update(job, title=safe_title, result=payload)
+
+    def _publish(self, job):
+        completed = dict(status='done', stage='done', message='提取完成',
+                         error=None, error_code=None, retryable=False, finished_at=time.time())
+        with self.lock:
+            membership.complete(job, {**job.public(), **completed}, 'settled' if job.result['source'] == 'asr' else 'released')
+            self._update(job, **completed)
 
     def _delete_object(self, job_id, key, storage=None):
         try:
@@ -455,10 +537,12 @@ class TranscriptionManager:
                             if job and job.error_code == "SUBMISSION_UNCERTAIN":
                                 if result.status == "SUCCEEDED" and result.cues:
                                     self._finish(job, result.cues, job.title, "asr", result.language)
-                                    self._update(job, status="done", stage="done", message="提取完成", error=None,
-                                                 error_code=None, retryable=False, finished_at=time.time())
+                                    self._publish(job)
                                 else:
-                                    self._update(job, error="未识别到文字或云端识别失败", error_code="RECOGNITION_FAILED", retryable=True)
+                                    fields = dict(error="未识别到文字或云端识别失败", error_code="RECOGNITION_FAILED", retryable=True)
+                                    with self.lock:
+                                        membership.complete(job, {**job.public(), **fields}, 'released')
+                                        self._update(job, **fields)
                     except TranscriptionError:
                         pass
                 # Unknown submissions without task IDs retain their reservation permanently.
@@ -493,6 +577,13 @@ class TranscriptionManager:
             while not self._stop.is_set():
                 try:
                     self.reconcile()
+                    try:
+                        with self.lock:
+                            membership.recover(self.ledger.entries(), {j.id for j in self.jobs.values() if j.status not in TERMINAL})
+                        membership.cleanup()
+                    except AccountError:
+                        # Guest downloads/subtitles do not depend on the account database.
+                        log.warning('Account history maintenance unavailable')
                     self.recovery_ready = True
                     self.cleanup()
                 except Exception:

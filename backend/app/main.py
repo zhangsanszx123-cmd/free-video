@@ -11,8 +11,8 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import account_store, ai, asr, config, downloader, tasks, transcription_auth
-from .account_auth import require_user
+from . import account_store, ai, asr, config, downloader, tasks, transcription_auth, membership
+from .account_auth import require_user, current_user
 from .errors import AccountError, EmptySubtitles, NoSubtitles, TranscriptionError
 from .transcriptions import TranscriptionManager, read_subtitles, result_payload
 from .downloader import VideoError
@@ -35,6 +35,7 @@ async def lifespan(_: FastAPI):
     config.DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
     try:
         account_store.init_schema()
+        membership.seed()
     except AccountError:
         logging.warning("Account database unavailable; guest features keep working, account APIs return 503")
     manager.start_cleaner()
@@ -93,26 +94,26 @@ class BatchTranscriptionReq(BaseModel):
 
 
 @app.post('/api/batch-transcriptions', dependencies=[Depends(require_user)])
-def create_batch_transcription(req: BatchTranscriptionReq, request: Request, response: Response):
+def create_batch_transcription(req: BatchTranscriptionReq, request: Request, response: Response, user: dict = Depends(require_user)):
     transcription_auth.check_origin(request)
-    owner = transcription_auth.owner(request, response)
+    owner = f"user:{user['id']}"
     transcription_auth.rate_limit(request, owner)
     response.headers['Cache-Control'] = 'no-store'
     return batch_transcription_manager.submit(owner, req.urls)
 
 
 @app.get('/api/batch-transcriptions/{job_id}', dependencies=[Depends(require_user)])
-def batch_transcription_status(job_id: str, request: Request, response: Response):
+def batch_transcription_status(job_id: str, request: Request, response: Response, user: dict = Depends(require_user)):
     transcription_auth.check_origin(request)
     response.headers['Cache-Control'] = 'no-store'
-    job = batch_transcription_manager.get(job_id, transcription_auth.owner(request))
+    job = batch_transcription_manager.get(job_id, f"user:{user['id']}")
     return batch_transcription_manager.public(job)
 
 
 @app.get('/api/batch-transcriptions/{job_id}/file', dependencies=[Depends(require_user)])
-def batch_transcription_archive(job_id: str, request: Request):
+def batch_transcription_archive(job_id: str, request: Request, user: dict = Depends(require_user)):
     transcription_auth.check_origin(request)
-    content = batch_transcription_manager.archive(job_id, transcription_auth.owner(request))
+    content = batch_transcription_manager.archive(job_id, f"user:{user['id']}")
     return Response(content, media_type='application/zip', headers={
         'Content-Disposition': 'attachment; filename="FreeVideo-subtitles.zip"',
         'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff'})
@@ -166,13 +167,20 @@ def subtitles(req: SubtitleReq):
 
 
 @app.post("/api/transcript")
-def transcript(req: SubtitleReq):
+def transcript(req: SubtitleReq, user: dict | None = Depends(current_user)):
     try:
         url = downloader.extract_url(req.url)
         config.DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=config.DOWNLOAD_DIR) as tmp:
-            _, cues, metadata = read_subtitles(url, Path(tmp), req.lang)
-        return result_payload(cues, **metadata)
+            info, cues, metadata = read_subtitles(url, Path(tmp), req.lang)
+        result = result_payload(cues, **metadata)
+        if user:
+            # Native subtitles are still free even if the history database temporarily fails.
+            try:
+                transcription_manager.save_native(user['id'], url, req.lang, info, result)
+            except AccountError:
+                logging.warning('Native subtitle history unavailable; returned the free transcript')
+        return result
     except NoSubtitles as e:
         raise TranscriptionError("NO_SUBTITLES", str(e), True) from e
     except EmptySubtitles as e:
@@ -190,9 +198,11 @@ def transcription_session(request: Request, response: Response):
 
 
 @app.post("/api/transcriptions")
-def create_transcription(req: TranscriptionReq, request: Request, response: Response):
+def create_transcription(req: TranscriptionReq, request: Request, response: Response, user: dict | None = Depends(current_user)):
     transcription_auth.check_origin(request)
-    owner = transcription_auth.owner(request, response)
+    if req.allow_asr and not user:
+        raise AccountError('AUTH_REQUIRED', '登录后可使用每月免费语音识别额度', 401)
+    owner = f"user:{user['id']}" if user else transcription_auth.owner(request, response)
     transcription_auth.rate_limit(request, owner)
     response.headers["Cache-Control"] = "no-store"
     try:
@@ -204,16 +214,24 @@ def create_transcription(req: TranscriptionReq, request: Request, response: Resp
 
 
 @app.get("/api/transcriptions/{job_id}")
-def transcription_status(job_id: str, request: Request, response: Response):
+def transcription_status(job_id: str, request: Request, response: Response, user: dict | None = Depends(current_user)):
     transcription_auth.check_origin(request)
     response.headers["Cache-Control"] = "no-store"
-    return transcription_manager.get(job_id, transcription_auth.owner(request)).public()
+    owner = f"user:{user['id']}" if user else transcription_auth.owner(request)
+    return transcription_manager.get(job_id, owner).public()
 
 
 @app.get("/api/transcriptions/{job_id}/file")
-def transcription_file(job_id: str, request: Request, format: Literal["txt", "srt"] = "txt"):
+def transcription_file(job_id: str, request: Request, format: Literal["txt", "srt"] = "txt", user: dict | None = Depends(current_user)):
     transcription_auth.check_origin(request)
-    job = transcription_manager.get(job_id, transcription_auth.owner(request))
+    owner = f"user:{user['id']}" if user else transcription_auth.owner(request)
+    job = transcription_manager.get(job_id, owner)
+    if user and job.status == 'done' and job.result:
+        from urllib.parse import quote
+        content = job.result['srt' if format == 'srt' else 'text']
+        return Response(content, media_type='text/plain; charset=utf-8', headers={
+            'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff',
+            'Content-Disposition': "attachment; filename*=UTF-8''" + quote(job.title + '.' + format, safe='')})
     path = job.directory / f"transcript.{format}"
     if job.status != "done" or not path.is_file():
         raise TranscriptionError("NOT_FOUND", "文稿尚未生成或已过期", status=404)
@@ -281,6 +299,8 @@ from .ai_learning_api import router as learning_router  # noqa: E402
 from .account_api import router as account_router  # noqa: E402
 app.include_router(learning_router, dependencies=[Depends(require_user)])
 app.include_router(account_router)
+from .membership_api import router as membership_router  # noqa: E402
+app.include_router(membership_router)
 
 
 if config.FRONTEND_DIST.exists():

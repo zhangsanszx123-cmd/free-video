@@ -124,7 +124,7 @@ onUnmounted(() => { disposed = true; clearTimeout(healthTimer); healthController
     <div class="pointer-events-none absolute -right-24 top-10 h-72 w-72 rounded-full bg-violet-400/20 blur-3xl"></div>
     <div class="relative mx-auto max-w-5xl px-4 text-center sm:px-6">
       <div class="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50/90 px-3 py-1 text-xs font-semibold text-amber-700">
-        <Icon name="gift" :size="14" /> 限时福利：Pro 会员 5 折<span class="hidden sm:inline">，4K + 批量 + AI 全解锁</span>
+        <Icon name="gift" :size="14" /> 视频下载与平台字幕免费<span class="hidden sm:inline">，语音识别按月度额度使用</span>
         <RouterLink to="/pricing" class="text-amber-800 underline-offset-2 hover:underline">查看 →</RouterLink>
       </div>
       <h1 class="mt-5 text-3xl font-extrabold leading-tight tracking-tight text-slate-950 sm:text-5xl lg:text-6xl">
@@ -396,7 +396,7 @@ onUnmounted(() => { disposed = true; clearTimeout(healthTimer); healthController
       <p class="mx-auto mt-3 max-w-xl text-sm text-indigo-100 sm:text-base">升级 Pro，解锁 4K 原画、批量下载、AI 总结与双语字幕，学习效率翻倍。</p>
       <div class="mt-7 flex flex-col justify-center gap-3 sm:flex-row">
         <RouterLink to="/pricing" class="btn-gold inline-flex items-center justify-center gap-2 rounded-xl px-8 py-3.5 font-bold">
-          <Icon name="crown" :size="18" /> 限时 5 折开通 Pro
+          <Icon name="crown" :size="18" /> 查看会员与识别时长
         </RouterLink>
         <a href="#" class="inline-flex items-center justify-center rounded-xl border border-white/30 px-8 py-3.5 font-semibold text-white hover:bg-white/10" @click.prevent="scrollTop">继续免费使用</a>
       </div>

@@ -200,7 +200,7 @@ def test_learn_api_no_subtitles_emits_need_asr_and_zero_asr_calls(client: TestCl
     assert asr_called == 0
 
 
-def test_learn_api_session_isolation_for_owned_transcriptions(client: TestClient, monkeypatch):
+def test_learn_api_account_isolation_for_owned_transcriptions(client: TestClient, monkeypatch):
     monkeypatch.setattr(config, "DEEPSEEK_API_KEY", "k")
     ai_learning_api._peer_hits.clear()
     fake_client, _ = _fake_openai(stream_reply=["会话复用成功 [00:08]"])
@@ -211,15 +211,8 @@ def test_learn_api_session_isolation_for_owned_transcriptions(client: TestClient
         lambda *_a, **_kw: (_ for _ in ()).throw(EmptySubtitles("空字幕")),
     )
 
-    # Establish Session A and register a completed ASR job owned by Session A
-    r_sess = client.get("/api/transcription-session")
-    assert r_sess.status_code == 200
-    from app import transcription_auth
-    from starlette.requests import Request as StarletteRequest
-
-    cookie_val = client.cookies.get(transcription_auth.COOKIE)
-    scope = {"type": "http", "headers": [(b"cookie", f"{transcription_auth.COOKIE}={cookie_val}".encode())]}
-    owner_a = transcription_auth.owner(StarletteRequest(scope))
+    # Register a completed ASR job owned by the logged-in account.
+    owner_a = 'user:1'
 
     url = "https://v.douyin.com/owned1/"
     job = Transcription(
@@ -238,13 +231,13 @@ def test_learn_api_session_isolation_for_owned_transcriptions(client: TestClient
         main.transcription_manager.jobs[job.id] = job
 
     try:
-        # Session A automatically reuses its own ASR result by URL without re-running ASR
+        # The account reuses its own ASR result by URL without re-running ASR.
         ok_resp = client.post("/api/learn/summary", json={"url": url})
         ok_events = _parse_sse(ok_resp.text)
         assert any(e == "meta" and d["source"] == "asr" for e, d in ok_events)
         assert any(e == "delta" and "会话复用成功" in d for e, d in ok_events)
 
-        # Session B (fresh client without Session A's cookie) CANNOT read job.id="ownedjob001"
+        # A different account cannot read job.id="ownedjob001".
         attacker = TestClient(main.app)
         attacker.get("/api/transcription-session")
         steal = attacker.post("/api/learn/summary", json={"url": url, "transcription_id": "ownedjob001"})

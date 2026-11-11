@@ -4,10 +4,10 @@
 
 > 仅供个人学习研究。请尊重版权，勿下载、传播未经授权的内容；频繁下载可能触发平台风控。
 
-文档：[需求分析](docs/requirements.md) ｜ [方案设计](docs/design.md) ｜ [视频转文字配置与验收](docs/video-to-text-setup.md) ｜ [账号功能验收](docs/account-verification.md)
+文档：[需求分析](docs/requirements.md) ｜ [方案设计](docs/design.md) ｜ [视频转文字配置与验收](docs/video-to-text-setup.md) ｜ [账号功能验收](docs/account-verification.md) ｜ [会员额度与本机管理](docs/membership-quota-plan.md) ｜ [会员与历史任务验收](docs/membership-verification.md)
 
 ## 技术栈
-- 后端：Python 3.12 + FastAPI，直接调用 yt-dlp Python API；抖音链接走 f2（开发分支，固定 commit，使用自动生成的匿名访客 Cookie，不登录）。均不修改源码；内存任务队列 + 临时文件自动清理；站内账号（用户名密码）使用 **MySQL 8.x**（PyMySQL），仅保存用户与登录会话
+- 后端：Python 3.12 + FastAPI，直接调用 yt-dlp Python API；抖音链接走 f2（开发分支，固定 commit，使用自动生成的匿名访客 Cookie，不登录）。均不修改源码；内存任务队列 + 临时文件自动清理；**MySQL 8.x**（PyMySQL）保存站内账号、登录会话、会员额度和 30 天转录任务历史
 - 前端：Vue 3 + Vite + Tailwind CSS v4 + vue-router
 - 依赖：本机需安装 **ffmpeg**（合并音视频、转 MP3、转换字幕）与 **MySQL 8.x**（账号功能）
 
@@ -84,4 +84,5 @@ cd backend
 - 视频转文字优先读取已有字幕，无字幕时调用 fun-asr-flash-2026-06-15；只需百炼 Key，无需 OSS。超过 5 分钟自动分段并发识别、合并时间轴，整条最长 60 分钟
 - AI 总结/翻译本期仍依赖平台字幕；没有自动联动收费识别
 - 多人转写仅支持单进程，状态目录需持久化；生产需 HTTPS 和会话配置。实时连接中断不自动重发音轨，未决费用保留供核对，详见配置指南
-- 定价页仅为展示，未接入真实支付
+- 语音识别需登录，免费用户每月 30 分钟；月卡 19.9 元/10 小时每月，年卡 99 元/30 小时每月；北京时间每月 1 日重置。下载与平台字幕提取免费，历史文稿保存 30 天
+- 未接入真实支付，暂由服务器本机命令开通会员与配置套餐；操作与验收见 [会员额度方案](docs/membership-quota-plan.md)

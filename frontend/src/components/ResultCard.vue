@@ -385,32 +385,12 @@ onUnmounted(() => {
     <!-- Main Extraction Result Card (AnyToCopy layout) -->
     <div class="overflow-hidden rounded-2xl border border-gray-100 bg-white text-left shadow-[0_18px_60px_rgba(15,23,42,0.08)] sm:rounded-3xl">
       <!-- Top Header Bar -->
-      <div class="flex flex-col gap-3 border-b border-gray-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 md:px-7">
-        <div class="flex items-center gap-3">
-          <div class="h-8 w-1.5 rounded-full bg-gradient-to-b from-blue-600 to-purple-600"></div>
-          <div>
+      <div class="flex flex-col gap-4 border-b border-gray-100 px-4 py-4 sm:px-6 md:px-7 xl:flex-row xl:items-center xl:justify-between">
+        <div class="flex min-w-0 items-start gap-3">
+          <div class="h-8 w-1.5 shrink-0 rounded-full bg-gradient-to-b from-blue-600 to-purple-600"></div>
+          <div class="min-w-0 flex-1">
             <div class="flex flex-wrap items-center gap-2.5">
               <h3 class="text-xl font-bold text-gray-950">提取结果</h3>
-              <div class="inline-flex items-center rounded-xl border border-slate-200 bg-slate-100/90 p-0.5 text-xs font-bold">
-                <button
-                  type="button"
-                  class="inline-flex cursor-pointer items-center gap-1 rounded-lg px-2.5 py-1 transition"
-                  :class="activeView !== 'ai' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 hover:text-blue-600'"
-                  @click="emit('update:activeView', 'download')"
-                >
-                  <Icon name="download" :size="13" />
-                  <span>素材与文案下载</span>
-                </button>
-                <button
-                  type="button"
-                  class="inline-flex cursor-pointer items-center gap-1 rounded-lg px-2.5 py-1 transition"
-                  :class="activeView === 'ai' ? 'bg-violet-600 text-white shadow-xs' : 'text-slate-600 hover:text-violet-600'"
-                  @click="emit('update:activeView', 'ai')"
-                >
-                  <Icon name="sparkles" :size="13" />
-                  <span>AI 视频总结</span>
-                </button>
-              </div>
             </div>
             <p class="mt-0.5 text-sm text-gray-500">文案、媒体素材和导出操作已整理完成（可在上方输入框选项卡随时切换至 AI 视频总结）</p>
           </div>

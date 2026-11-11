@@ -177,6 +177,7 @@ def require_user(request: Request) -> dict:
     user = current_user(request)
     if not user:
         raise AccountError("AUTH_REQUIRED", "请先登录后使用该功能", 401)
+    request.state.account_user = user
     return user
 
 

@@ -31,6 +31,10 @@ class UIRegression(unittest.TestCase):
         # /batch, /ai and /learn require login; account flows are covered by account_ui.py.
         self.page.route('**/api/auth/me', lambda r: r.fulfill(json=dict(user=dict(
             id=1, username='tester', nickname='测试用户', created_at='2026-11-10T00:00:00Z'))))
+        self.page.route('**/api/plans', lambda r: r.fulfill(json=dict(plans=[
+            dict(code='free', name='免费用户', price_cents=0, monthly_seconds=1800),
+            dict(code='monthly', name='月卡会员', price_cents=1990, monthly_seconds=36000),
+            dict(code='yearly', name='年卡会员', price_cents=9900, monthly_seconds=108000)])))
 
     def tearDown(self):
         self.page.close()

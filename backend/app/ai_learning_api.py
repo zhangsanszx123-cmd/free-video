@@ -97,16 +97,18 @@ def _lookup_owned_transcription(request: Request, clean_url: str, explicit_id: s
         return None
     if explicit_id:
         transcription_auth.check_origin(request)
-        owner = transcription_auth.owner(request)
+        user = getattr(request.state, 'account_user', None)
+        owner = f"user:{user['id']}" if user else transcription_auth.owner(request)
         job = tm.get(explicit_id, owner)
         if job.status != "done" or not job.result:
             raise VideoError("语音转写尚未完成，请等待转写结束后再试")
         return job
-    if transcription_auth.COOKIE not in request.cookies:
+    user = getattr(request.state, 'account_user', None)
+    if not user and transcription_auth.COOKIE not in request.cookies:
         return None
     try:
         transcription_auth.check_origin(request)
-        owner = transcription_auth.owner(request)
+        owner = f"user:{user['id']}" if user else transcription_auth.owner(request)
     except TranscriptionError:
         return None
     with tm.lock:

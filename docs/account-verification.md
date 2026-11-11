@@ -1,5 +1,24 @@
 # 账号功能验收记录（v1.5）
 
+## 2026-11-11 个人中心优化验证
+
+- `npm --prefix frontend run build`：通过。
+- 后端 `pytest -m 'not network' -q`：170 passed，4 deselected；包含真实 MySQL 测试库账号测试。OSS SDK 有一条既有 `utcnow()` 弃用警告。
+- `python -P frontend/tests/account_ui.py`：9 项通过；真实后端 :8010 + `freevideo_test`，AI/ASR 关闭。
+- `python -P frontend/tests/ui_regression.py`：7 项通过。
+- `python -P frontend/tests/batch_subtitles_ui.py`：3 项通过。
+- 新增覆盖：分区默认状态、昵称取消、跨标签页同步及草稿保留、密码字段校验、注销展开与取消清空、设备加载失败后重试、主动刷新、当前设备置顶、360/390/768/1440px 无页面横向溢出。
+- 已检查桌面与手机截图，产物在 `.runtime/account-ui/`；正式服务 :8000 首页返回 200，前端产物已更新。
+
+本轮人工验收（待用户确认）：
+
+- [ ] 登录后进入 `/account`，查看四个分区；个人中心、桌面导航及手机菜单保留自动生成的首字母头像，无头像修改入口。
+- [ ] 修改昵称后取消，再保存，检查导航与其他标签页同步。
+- [ ] 登录设备页刷新列表，检查当前设备标识与设备下线反馈。
+- [ ] 账号安全页检查字段错误提示；使用测试账号验证改密后全部设备退出。
+- [ ] 注销页默认不展示密码表单；展开后取消，再展开时输入为空。
+- [ ] 手机横向切换分区，检查页面可读性。
+
 日期：2026-11-10。环境：Windows、Python 3.12.14、MySQL 8.4.9（本机 MySQL84 服务）、Chromium（Playwright）。
 
 ## 准备

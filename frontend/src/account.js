@@ -32,6 +32,10 @@ async function call(path, { method = 'GET', body } = {}) {
 }
 
 export const accountApi = {
+  membership: () => call('/api/account/membership'),
+  plans: () => call('/api/plans'),
+  history: (params) => call(`/api/account/history?${new URLSearchParams(params)}`),
+  hideHistory: (id) => call(`/api/account/history/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   me: () => call('/api/auth/me'),
   register: (body) => call('/api/auth/register', { method: 'POST', body }),
   login: (body) => call('/api/auth/login', { method: 'POST', body }),
@@ -177,7 +181,6 @@ function notifyOtherTabs(userId) {
 
 function onRemoteChange(message) {
   if (message?.type !== 'auth-changed') return
-  if ((account.user?.id ?? null) === message.userId && account.status !== 'unknown') return
   account.refresh()
 }
 

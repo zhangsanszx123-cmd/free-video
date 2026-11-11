@@ -22,6 +22,7 @@ def db(monkeypatch):
     monkeypatch.setattr(config, "AUTH_REGISTER_RATE_LIMIT", 5)
     monkeypatch.setattr(config, "AUTH_LOGIN_RATE_LIMIT", 10)
     main.app.dependency_overrides.pop(account_auth.require_user, None)
+    main.app.dependency_overrides.pop(account_auth.current_user, None)
     conn = pymysql.connect(host=config.MYSQL_HOST, port=config.MYSQL_PORT, user=config.MYSQL_USER,
                            password=config.MYSQL_PASSWORD, charset="utf8mb4")
     with conn, conn.cursor() as cur:
