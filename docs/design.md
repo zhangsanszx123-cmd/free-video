@@ -1,5 +1,15 @@
 # FreeVideo 方案设计文档
 
+## 2026-11-13 ZPAY 支付架构
+
+- `zpay.py`：协议薄封装——`sign_string/sign/verify`（排序、排除 sign/sign_type/空值、不编码、`md5(...+KEY)` 小写）、`money/cents`（整数分 ↔ 两位小数）、`submit_form` 生成 submit.php 表单字段（notify_url=`PUBLIC_BASE_URL/api/pay/notify`，return_url=`PUBLIC_BASE_URL/pay/result`）、`query_order`（`api.php?act=order`，3 秒超时，异常抛 `ZpayError`，不记录含 KEY 的 URL）、`refund`。`enabled()` = 配置了 PID+KEY 或模拟模式；`mock_active()` 在 `SESSION_SECURE=true` 时恒为 False。
+- `payments.py`：`create_order`（登录用户、10 分钟 10 次限速、锁用户行、规则判定 `outcome()`、复用 TTL 内同价未支付订单、26 位数字单号）、`fulfil`（锁用户行 → 锁订单行；非 pending 直接返回；金额/交易号冲突写 `conflict` 事件不入账；按 new/renew/upgrade 调用 `membership.apply_membership`，refused 或用户已删除标记 `refund_required`）、`confirm`（查单 → fulfil）、`handle_notify`（验签+pid+TRADE_SUCCESS+金额+类型，再 confirm；返回 `success`/`fail`）、`order_status`（本人订单，pending 时最多每 5 秒查单一次，原子 `last_checked_at` 抢占）、`reconcile` + `Reconciler` 线程（lifespan 启停，24 小时内 pending，每轮 20 条），CLI `orders/sync/refund`。
+- `membership.py` 抽出 `months_after()`（北京时间按日历月加、月底截断）与 `apply_membership()`（写权益快照并替换本月额度上限，保留已用/预占），`grant` 与支付共用；`summary/plans` 的 `payment_enabled` 动态返回。
+- `payment_api.py`：`POST /api/pay/orders {plan}` → `{order, action, fields, preview}`；`GET /api/pay/orders`（最近 20 笔）；`GET /api/pay/orders/{no}`；`GET|POST /api/pay/notify`（无登录与来源校验，纯文本）。`zpay_mock.py`：`/api/pay/mock/submit.php`（验签后渲染模拟收银台）、`/pay`（成功/不发通知/重复通知/取消，通知在线程池中经 HTTP 发往 notify_url）、`/api.php?act=order`；非模拟模式全部 404。表单体手工解析，不引入 python-multipart。
+- 表 `payment_orders`（套餐快照、status `pending|paid|refund_required|refunded`、`trade_no` 唯一、`fulfilment`、`membership_expires_at`、`last_checked_at`，`user_id` 外键 ON DELETE SET NULL）与 `payment_events`（create/fulfil/conflict/refund 流水，去除 sign/key）。
+- 前端：`payment.js`（`purchaseKind` 与后端规则一致、`submitToGateway` 动态表单 POST、sessionStorage 记住单号）、`PayModal.vue`（原生 dialog，提交锁）、`Pricing.vue`（开通/续费/升级/禁用文案，游客登录后继续）、`PayResult.vue`（`/pay/result`，2 秒轮询最多 2 分钟）、`Account.vue` 会员分区「我的订单」，支持 `/account?section=membership`。
+- 测试：`tests/test_payments.py`（13 项，含 10 线程并发只入账一次）、`frontend/tests/payment_ui.py`（真实后端 + 模拟收银台）。配置与运维见 [zpay-setup.md](./zpay-setup.md)。
+
 ## 2026-11-11 定价页样式
 
 `Pricing.vue` 恢复原版 `glass-card`、年卡深色金边及 `btn-gold` 等视觉样式和权益对比布局，保留 `/api/plans` 数据来源以及现有会员开通说明。未改动额度结算和数据库配置。

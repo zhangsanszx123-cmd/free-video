@@ -30,7 +30,7 @@ onMounted(loadMembership)
         <p class="text-xs leading-6 text-slate-600">{{ data.expires_at ? `会员有效期至：${date(data.expires_at)}` : '免费用户每月赠送额度' }}</p>
         <p class="mt-3 text-sm leading-6 text-slate-600">仅语音识别扣时长。下载视频、提取平台字幕、复制和导出已有文稿不扣额度。任务及转录文本保存 30 天。</p>
       </template>
-      <RouterLink to="/pricing" class="btn-primary mt-4 flex min-h-11 items-center justify-center rounded-xl px-4 text-sm font-bold">查看会员套餐</RouterLink>
+      <RouterLink to="/pricing" class="btn-primary mt-4 flex min-h-11 items-center justify-center rounded-xl px-4 text-sm font-bold">{{ data.payment_enabled ? (data.expires_at ? '续费 / 升级会员' : '开通会员') : '查看会员套餐' }}</RouterLink>
     </template>
   </section>
 </template>

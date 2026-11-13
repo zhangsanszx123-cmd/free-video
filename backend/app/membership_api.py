@@ -4,7 +4,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 
-from . import membership, transcription_auth
+from . import membership, transcription_auth, zpay
 from .account_auth import require_user
 from .errors import TranscriptionError
 
@@ -14,7 +14,7 @@ router = APIRouter(tags=['membership'])
 @router.get('/api/plans')
 def plans(response: Response):
     response.headers['Cache-Control'] = 'no-store'
-    return {'plans': membership.plans(), 'payment_enabled': False}
+    return {'plans': membership.plans(), 'payment_enabled': zpay.enabled()}
 
 
 @router.get('/api/account/membership')

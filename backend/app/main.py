@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import account_store, ai, asr, config, downloader, tasks, transcription_auth, membership
+from . import account_store, ai, asr, config, downloader, tasks, transcription_auth, membership, payments
 from .account_auth import require_user, current_user
 from .errors import AccountError, EmptySubtitles, NoSubtitles, TranscriptionError
 from .transcriptions import TranscriptionManager, read_subtitles, result_payload
@@ -28,6 +28,7 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 manager = JobManager()
 transcription_manager = TranscriptionManager()
 batch_transcription_manager = BatchTranscriptionManager(lambda: transcription_manager)
+payment_reconciler = payments.Reconciler()
 
 
 @asynccontextmanager
@@ -38,10 +39,16 @@ async def lifespan(_: FastAPI):
         membership.seed()
     except AccountError:
         logging.warning("Account database unavailable; guest features keep working, account APIs return 503")
+    if config.ZPAY_MOCK and config.SESSION_SECURE:
+        logging.error("ZPAY_MOCK is ignored because SESSION_SECURE=true (production)")
+    elif config.ZPAY_MOCK:
+        logging.warning("ZPAY_MOCK=true: payments use the local fake cashier, no real money is collected")
     manager.start_cleaner()
     transcription_manager.start()
     batch_transcription_manager.stopping.clear()
+    payment_reconciler.start()
     yield
+    payment_reconciler.stop()
     batch_transcription_manager.stopping.set()
     transcription_manager.stop()
 
@@ -301,6 +308,10 @@ app.include_router(learning_router, dependencies=[Depends(require_user)])
 app.include_router(account_router)
 from .membership_api import router as membership_router  # noqa: E402
 app.include_router(membership_router)
+from .payment_api import router as payment_router  # noqa: E402
+from .zpay_mock import router as zpay_mock_router  # noqa: E402
+app.include_router(payment_router)
+app.include_router(zpay_mock_router)  # every endpoint 404s unless ZPAY_MOCK=true outside production
 
 
 if config.FRONTEND_DIST.exists():

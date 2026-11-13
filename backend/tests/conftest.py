@@ -11,6 +11,10 @@ def tmp_downloads(tmp_path, monkeypatch, request):
     monkeypatch.setattr(config, "DOWNLOAD_DIR", tmp_path / "downloads")
     monkeypatch.setattr(config, "ASR_DIR", tmp_path / "transcriptions")
     monkeypatch.setattr(config, "DASHSCOPE_API_KEY", None)
+    # Never call the real ZPAY from tests; payment tests enable the in-process mock explicitly.
+    for name, value in (("ZPAY_PID", None), ("ZPAY_KEY", None), ("ZPAY_MOCK", False),
+                        ("PAYMENT_RECONCILE_SECONDS", 0), ("PUBLIC_BASE_URL", "http://testserver")):
+        monkeypatch.setattr(config, name, value)
     from app.transcriptions import TranscriptionManager
     from app import transcription_auth
     transcription_auth._rates.clear()
@@ -38,7 +42,7 @@ def tmp_downloads(tmp_path, monkeypatch, request):
     main.app.dependency_overrides[account_auth.current_user] = fake_current
     # Legacy ASR tests exercise provider/cost behaviour with no database. Dedicated membership/account
     # tests retain the real repository and a configured MySQL test database.
-    if request.module.__name__.split('.')[-1] not in ('test_membership', 'test_accounts'):
+    if request.module.__name__.split('.')[-1] not in ('test_membership', 'test_accounts', 'test_payments'):
         for name in ('seed', 'create_record', 'persist', 'complete', 'reserve', 'alias_key', 'save_alias', 'hide', 'cleanup', 'recover'):
             monkeypatch.setattr(membership, name, lambda *a, **k: None)
         monkeypatch.setattr(membership, 'record', lambda *a, **k: None)

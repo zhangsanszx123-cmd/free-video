@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from . import account_store as store
+from . import zpay
 from .errors import AccountError, TranscriptionError
 
 TZ = timezone(timedelta(hours=8))
@@ -79,7 +80,7 @@ def summary(user_id):
                 limit_seconds=quota['limit_seconds'], used_seconds=quota['used_seconds'],
                 reserved_seconds=quota['reserved_seconds'], pending_previous_seconds=held,
                 available_seconds=max(0, quota['limit_seconds'] - quota['used_seconds'] - quota['reserved_seconds'] - held),
-                period_start=start.isoformat(), resets_at=end.isoformat(), payment_enabled=False)
+                period_start=start.isoformat(), resets_at=end.isoformat(), payment_enabled=zpay.enabled())
 
 
 def iso(value):
@@ -297,19 +298,31 @@ def grant(username, code):
             raise ValueError('请选择 monthly 或 yearly')
         ent = _entitlement(cur, user['id'])
         if ent['code'] != 'free':
-            raise ValueError('该用户已有有效会员；暂不支持提前续费或跨档升级')
+            raise ValueError('该用户已有有效会员；请通过在线支付续费或升级')
         now = store.utcnow()
-        local = now.replace(tzinfo=timezone.utc).astimezone(TZ)
-        month = local.month - 1 + plan['months']
-        year, month = local.year + month // 12, month % 12 + 1
-        end = local.replace(year=year, month=month, day=min(local.day, calendar.monthrange(year, month)[1]))
-        cur.execute('REPLACE INTO user_memberships VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
-                    (user['id'], code, plan['name'], plan['price_cents'], plan['monthly_seconds'], plan['revision'], now,
-                     end.astimezone(timezone.utc).replace(tzinfo=None)))
-        # Upgrade replaces this month's limit; it does not erase usage or add free quota twice.
-        quota, _, _ = _quota(cur, user['id'], plan)
-        cur.execute('UPDATE user_quota_periods SET limit_seconds=%s,plan_code=%s WHERE user_id=%s AND period=%s',
-                    (plan['monthly_seconds'], code, user['id'], quota['period']))
+        apply_membership(cur, user['id'], plan, now, months_after(now, plan['months']))
+
+
+def months_after(start, months):
+    """Add calendar months in Beijing time (month-end clamps to the target month's last day). UTC naive in/out."""
+    local = start.replace(tzinfo=timezone.utc).astimezone(TZ)
+    month = local.month - 1 + months
+    year, month = local.year + month // 12, month % 12 + 1
+    end = local.replace(year=year, month=month, day=min(local.day, calendar.monthrange(year, month)[1]))
+    return end.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def apply_membership(cur, uid, plan, starts_at, expires_at):
+    """Write the entitlement snapshot; caller holds the user row lock.
+
+    The paid plan replaces this month's limit; it does not erase usage or add free quota twice."""
+    code = plan.get('code') or plan['plan_code']
+    name = plan.get('name') or plan['plan_name']
+    cur.execute('REPLACE INTO user_memberships VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
+                (uid, code, name, plan['price_cents'], plan['monthly_seconds'], plan['revision'], starts_at, expires_at))
+    quota, _, _ = _quota(cur, uid, dict(code=code, monthly_seconds=plan['monthly_seconds']))
+    cur.execute('UPDATE user_quota_periods SET limit_seconds=%s,plan_code=%s WHERE user_id=%s AND period=%s',
+                (plan['monthly_seconds'], code, uid, quota['period']))
 
 
 def configure(code, price_cents, monthly_seconds):
@@ -322,7 +335,7 @@ def configure(code, price_cents, monthly_seconds):
 
 if __name__ == '__main__':
     import argparse
-    parser = argparse.ArgumentParser(description='本机会员管理（不提供在线支付）')
+    parser = argparse.ArgumentParser(description='本机会员管理（人工开通，不经过支付）')
     sub = parser.add_subparsers(dest='command', required=True)
     sub.add_parser('plans')
     grant_parser = sub.add_parser('grant')

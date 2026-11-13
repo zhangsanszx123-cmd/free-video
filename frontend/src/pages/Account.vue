@@ -6,6 +6,8 @@ import UserAvatar from '../components/UserAvatar.vue'
 import QuotaCard from '../components/QuotaCard.vue'
 import { membership } from '../membership.js'
 import { account, accountApi, rules } from '../account.js'
+import { orderStatusLabel } from '../payment.js'
+import { useRoute } from 'vue-router'
 
 let disposed = false
 onUnmounted(() => { disposed = true })
@@ -22,7 +24,7 @@ function notify(message) {
 }
 onUnmounted(() => clearTimeout(toastTimer))
 
-const active = ref('profile')
+const route = useRoute()
 const sections = [
   { id: 'membership', label: '会员与额度', icon: 'crown', description: '查看每月语音识别用量与会员权益' },
   { id: 'profile', label: '基本资料', icon: 'user', description: '管理你的账号资料' },
@@ -30,6 +32,24 @@ const sections = [
   { id: 'devices', label: '登录设备', icon: 'monitor', description: '查看和管理登录会话' },
   { id: 'delete', label: '注销账号', icon: 'trash', description: '永久删除账号' },
 ]
+const active = ref(sections.some(item => item.id === route.query.section) ? route.query.section : 'profile')
+
+/* Orders */
+const orders = reactive({ list: [], loading: false, error: '' })
+async function loadOrders() {
+  if (orders.loading) return
+  orders.loading = true
+  orders.error = ''
+  try {
+    const { orders: list } = await accountApi.orders()
+    if (!disposed) orders.list = list
+  } catch (e) {
+    if (!disposed) orders.error = e.message
+  } finally {
+    orders.loading = false
+  }
+}
+onMounted(loadOrders)
 const deleteExpanded = ref(false)
 function cancelProfile() {
   nickname.value = user.value?.nickname || ''
@@ -185,6 +205,26 @@ async function deleteAccount() {
             <RouterLink to="/history?status=active" class="btn-ghost flex min-h-11 items-center gap-2 px-4 text-sm font-semibold"><Icon name="clock" :size="18" />执行中任务</RouterLink>
             <RouterLink to="/history" class="btn-ghost flex min-h-11 items-center gap-2 px-4 text-sm font-semibold"><Icon name="file" :size="18" />历史任务</RouterLink>
           </div>
+          <section class="glass-card rounded-3xl p-6 sm:p-8" aria-labelledby="orders-title">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <h2 id="orders-title" class="flex items-center gap-2 text-lg font-bold text-slate-900"><Icon name="clipboard" :size="18" class="text-indigo-600" /> 我的订单</h2>
+              <button type="button" :disabled="orders.loading" class="btn-ghost min-h-11 px-4 text-sm font-semibold disabled:opacity-50" @click="loadOrders">{{ orders.loading ? '刷新中…' : '刷新订单' }}</button>
+            </div>
+            <p v-if="orders.error" role="alert" class="mt-4 rounded-xl bg-rose-50 px-3 py-2.5 text-sm text-rose-600">{{ orders.error }}</p>
+            <p v-else-if="!orders.loading && !orders.list.length" class="mt-4 text-sm text-slate-500">暂无订单。<RouterLink to="/pricing" class="font-semibold text-indigo-600 hover:underline">查看会员套餐</RouterLink></p>
+            <ul class="mt-4 divide-y divide-slate-100">
+              <li v-for="o in orders.list" :key="o.out_trade_no" class="flex flex-col gap-2 py-3 sm:flex-row sm:items-center">
+                <div class="min-w-0 flex-1">
+                  <div class="flex flex-wrap items-center gap-2 font-semibold text-slate-800">
+                    {{ o.plan_name }} · ¥{{ o.amount }}
+                    <span class="rounded-md px-1.5 py-px text-xs font-bold" :class="o.status === 'paid' ? 'bg-emerald-50 text-emerald-600' : o.status === 'refund_required' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-500'">{{ orderStatusLabel(o) }}</span>
+                  </div>
+                  <div class="mt-1 break-all text-xs leading-6 text-slate-500">订单号 {{ o.out_trade_no }} · 下单 {{ fmtTime(o.created_at) }}<template v-if="o.paid_at"> · 支付 {{ fmtTime(o.paid_at) }}</template></div>
+                </div>
+                <RouterLink v-if="o.status === 'pending'" :to="`/pay/result?out_trade_no=${o.out_trade_no}`" class="min-h-11 self-start rounded-xl px-4 py-2.5 text-sm font-semibold text-indigo-600 hover:bg-indigo-50 sm:self-auto">我已付款，查询结果</RouterLink>
+              </li>
+            </ul>
+          </section>
         </div>
         <section v-show="active === 'profile'" class="glass-card rounded-3xl p-6 sm:p-8" aria-labelledby="profile-title">
           <h2 id="profile-title" class="flex items-center gap-2 text-lg font-bold text-slate-900"><Icon name="user" :size="18" class="text-indigo-600" /> 基本资料</h2>

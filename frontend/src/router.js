@@ -12,6 +12,7 @@ const titles = {
   register: '注册账号 - FreeVideo',
   account: '个人中心 - FreeVideo',
   history: '任务记录 - FreeVideo',
+  payResult: '支付结果 - FreeVideo',
 }
 
 const router = createRouter({
@@ -26,6 +27,7 @@ const router = createRouter({
     { path: '/register', name: 'register', component: () => import('./pages/Register.vue'), meta: { guestOnly: true } },
     { path: '/account', name: 'account', component: () => import('./pages/Account.vue'), meta: { requiresAuth: true } },
     { path: '/history', name: 'history', component: () => import('./pages/History.vue'), meta: { requiresAuth: true } },
+    { path: '/pay/result', name: 'payResult', component: () => import('./pages/PayResult.vue'), meta: { requiresAuth: true } },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
   scrollBehavior: (to) => (to.hash ? { el: to.hash, top: 80, behavior: 'smooth' } : { top: 0 }),

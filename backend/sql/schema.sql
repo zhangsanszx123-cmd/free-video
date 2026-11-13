@@ -94,6 +94,40 @@ CREATE TABLE IF NOT EXISTS quota_events (
   CONSTRAINT fk_event_reservation FOREIGN KEY (job_id) REFERENCES quota_reservations(job_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- ZPAY orders keep a price/plan snapshot. Financial rows survive account deletion (user_id set to NULL).
+CREATE TABLE IF NOT EXISTS payment_orders (
+  out_trade_no CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
+  user_id BIGINT UNSIGNED NULL,
+  plan_code VARCHAR(16) NOT NULL,
+  plan_name VARCHAR(32) NOT NULL,
+  price_cents INT UNSIGNED NOT NULL,
+  monthly_seconds INT UNSIGNED NOT NULL,
+  months INT UNSIGNED NOT NULL,
+  revision INT UNSIGNED NOT NULL,
+  subject VARCHAR(100) NOT NULL,
+  pay_type VARCHAR(16) NOT NULL,
+  status VARCHAR(16) NOT NULL,
+  trade_no VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  fulfilment VARCHAR(16) NULL,
+  membership_expires_at DATETIME(6) NULL,
+  created_at DATETIME(6) NOT NULL,
+  paid_at DATETIME(6) NULL,
+  last_checked_at DATETIME(6) NULL,
+  UNIQUE KEY uq_payment_trade_no (trade_no),
+  KEY idx_payment_user (user_id, created_at),
+  KEY idx_payment_status (status, created_at),
+  CONSTRAINT fk_payment_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS payment_events (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  out_trade_no VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  action VARCHAR(16) NOT NULL,
+  detail JSON NULL,
+  created_at DATETIME(6) NOT NULL,
+  KEY idx_payment_event_order (out_trade_no, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS sessions (
   id CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   token_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,

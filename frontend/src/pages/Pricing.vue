@@ -1,28 +1,54 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import Icon from '../components/Icon.vue'
 import FaqList from '../components/FaqList.vue'
-import { accountApi } from '../account.js'
-import { durationLabel } from '../membership.js'
+import PayModal from '../components/PayModal.vue'
+import { account, accountApi, openAuth } from '../account.js'
+import { durationLabel, loadMembership, membership } from '../membership.js'
+import { purchaseKind } from '../payment.js'
 import { ui } from '../store.js'
 
 const plans = ref([])
+const paymentEnabled = ref(false)
 const error = ref('')
 const loading = ref(false)
+const paying = ref(null)
 async function load() {
   loading.value = true
   error.value = ''
-  try { plans.value = (await accountApi.plans()).plans }
-  catch (e) { error.value = e.message }
+  try {
+    const data = await accountApi.plans()
+    plans.value = data.plans
+    paymentEnabled.value = data.payment_enabled
+  } catch (e) { error.value = e.message }
   finally { loading.value = false }
 }
-onMounted(load)
-const faqs = [
+onMounted(() => { load(); account.ensure().then(() => loadMembership()) })
+watch(() => account.user?.id, (id) => { if (id) loadMembership() })
+
+const kindOf = (code) => (account.loggedIn ? purchaseKind(membership.data, code) : 'new')
+const buttonLabel = (plan) => ({ new: '开通', renew: '续费', upgrade: '升级', refused: '开通' }[kindOf(plan.code)]
+  + (plan.code === 'monthly' ? '月卡' : '年卡'))
+const busyMembership = computed(() => account.loggedIn && !membership.data && !membership.error)
+
+async function buy(plan) {
+  if (!paymentEnabled.value) return ui.openUpgrade('会员在线支付')
+  if (!account.loggedIn) {
+    return openAuth({ notice: '登录后即可开通会员', onSuccess: () => buy(plan) })
+  }
+  await loadMembership()
+  if (membership.error) return ui.notify(membership.error)
+  if (kindOf(plan.code) !== 'refused') paying.value = plan
+}
+const faqs = computed(() => [
   { q: '什么操作会扣时长？', a: '仅语音识别扣时长，按服务端核实的音频时长计算，整秒向上取整。视频下载、提取平台现成字幕、复制和导出已有文稿均不扣识别时长。' },
   { q: '额度什么时候重置？', a: '所有套餐在北京时间每月 1 日 00:00 重置，未用完的时长不结转。年卡每月发放额度，不一次性发放全年时长。' },
-  { q: '现在可以在线购买吗？', a: '暂不提供在线支付，会员开通由管理员处理。本页价格与额度由服务端套餐配置提供。' },
+  paymentEnabled.value
+    ? { q: '如何购买？支付后多久生效？', a: '登录后点击开通，跳转支付宝收银台付款，完成后自动返回本站并开通会员，通常几秒内生效。如果页面提示确认中，可稍后在个人中心「会员与额度」查看订单状态，同一笔付款不会重复开通或重复扣费。' }
+    : { q: '现在可以在线购买吗？', a: '在线支付暂未开放，会员开通由管理员处理。本页价格与额度由服务端套餐配置提供。' },
+  { q: '可以续费或升级吗？', a: '同一套餐续费会在当前到期时间基础上顺延；月卡可随时升级年卡，立即生效，月卡剩余时长顺延到年卡之后。年卡有效期内无需购买月卡。' },
   { q: '任务和文稿能保存多久？', a: '任务记录及转录文本保存 30 天。视频与音频为临时文件，下载地址可能过期。' },
-]
+])
 </script>
 
 <template>
@@ -47,8 +73,11 @@ const faqs = [
           </div>
           <ul class="mt-6 flex-1 space-y-3 text-sm"><li v-for="text in ['视频下载与平台字幕提取免费', '北京时间每月 1 日重置', '已有文稿导出不重复扣量', '任务记录与转录文本保存 30 天']" :key="text" class="flex items-start gap-2"><Icon name="check" :size="16" class="mt-0.5 shrink-0" :class="plan.code === 'yearly' ? 'text-amber-400' : 'text-emerald-500'" />{{ text }}</li></ul>
           <RouterLink v-if="plan.code === 'free'" to="/account" class="mt-8 flex min-h-12 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-3.5 font-bold text-slate-600">查看我的额度</RouterLink>
-          <button v-else type="button" class="mt-8 min-h-12 w-full rounded-xl px-4 py-3.5 font-bold" :class="plan.code === 'yearly' ? 'btn-gold' : 'btn-primary'" @click="ui.openUpgrade('会员开通')">{{ plan.code === 'monthly' ? '开通月卡' : '开通年卡' }}</button>
-          <p v-if="plan.code !== 'free'" class="mt-3 text-center text-xs" :class="plan.code === 'yearly' ? 'text-slate-400' : 'text-slate-500'">在线支付暂未开放</p>
+          <button v-else type="button" class="mt-8 min-h-12 w-full rounded-xl px-4 py-3.5 font-bold disabled:cursor-not-allowed disabled:opacity-50" :class="plan.code === 'yearly' ? 'btn-gold' : 'btn-primary'"
+            :disabled="paymentEnabled && (busyMembership || kindOf(plan.code) === 'refused')" @click="buy(plan)">{{ buttonLabel(plan) }}</button>
+          <p v-if="plan.code !== 'free'" class="mt-3 text-center text-xs" :class="plan.code === 'yearly' ? 'text-slate-400' : 'text-slate-500'">
+            {{ !paymentEnabled ? '在线支付暂未开放' : kindOf(plan.code) === 'refused' ? '年卡有效期内无需购买月卡' : kindOf(plan.code) === 'upgrade' ? '立即升级，月卡剩余时长顺延' : kindOf(plan.code) === 'renew' ? '到期时间自动顺延' : '支付宝付款 · 支付成功自动开通' }}
+          </p>
         </article>
       </div>
       <div class="mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-slate-500"><span class="flex items-center gap-1"><Icon name="shield" :size="14" class="text-emerald-500" />额度安全结算</span><span class="flex items-center gap-1"><Icon name="check" :size="14" class="text-emerald-500" />仅语音识别扣时长</span><span class="flex items-center gap-1"><Icon name="phone" :size="14" class="text-emerald-500" />手机电脑通用</span></div>
@@ -63,4 +92,5 @@ const faqs = [
       <h2 class="section-title mt-14 text-center">购买问题</h2><FaqList :items="faqs" class="mt-8" />
     </div>
   </section>
+  <PayModal v-if="paying" :plan="paying" @close="paying = null" />
 </template>

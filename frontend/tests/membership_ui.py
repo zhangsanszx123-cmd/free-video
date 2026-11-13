@@ -87,8 +87,10 @@ for i, source in enumerate(['asr','platform_subtitle']):
         expect(cards.nth(1)).to_contain_text('10小时')
         expect(cards.nth(2)).to_contain_text('99')
         expect(cards.nth(2)).to_contain_text('30小时')
+        # Backend runs without ZPAY credentials here; payment flows live in payment_ui.py.
+        expect(cards.nth(1)).to_contain_text('在线支付暂未开放')
         p.get_by_role('button', name='开通月卡', exact=True).click()
-        expect(p.get_by_role('dialog')).to_contain_text('在线支付暂未开放')
+        expect(p.get_by_role('dialog')).to_contain_text('会员在线支付功能即将上线')
         p.keyboard.press('Escape')
         p.screenshot(path=SHOTS / 'pricing-desktop.png', full_page=True)
 

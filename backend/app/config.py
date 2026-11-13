@@ -60,5 +60,14 @@ MYSQL_TEST_DATABASE = os.getenv("MYSQL_TEST_DATABASE") or None
 AUTH_SESSION_DAYS = int(os.getenv("AUTH_SESSION_DAYS", "7"))
 AUTH_REGISTER_RATE_LIMIT = int(os.getenv("AUTH_REGISTER_RATE_LIMIT", "5"))  # per IP per 10 minutes
 AUTH_LOGIN_RATE_LIMIT = int(os.getenv("AUTH_LOGIN_RATE_LIMIT", "10"))  # per IP per minute
+# ZPAY (https://z-pay.cn). The key signs requests; it never leaves the server.
+ZPAY_PID = (os.getenv("ZPAY_PID") or "").strip() or None
+ZPAY_KEY = (os.getenv("ZPAY_KEY") or "").strip() or None
+ZPAY_GATEWAY = (os.getenv("ZPAY_GATEWAY") or "https://zpayz.cn").rstrip("/")
+# Local fake cashier for development; refused when SESSION_SECURE=true (production).
+ZPAY_MOCK = os.getenv("ZPAY_MOCK", "false").lower() == "true"
+PUBLIC_BASE_URL = (os.getenv("PUBLIC_BASE_URL") or "http://127.0.0.1:8000").rstrip("/")
+PAYMENT_ORDER_TTL_MINUTES = int(os.getenv("PAYMENT_ORDER_TTL_MINUTES", "30"))
+PAYMENT_RECONCILE_SECONDS = int(os.getenv("PAYMENT_RECONCILE_SECONDS", "60"))
 FFMPEG_BINARY = os.getenv("FFMPEG_BINARY", "ffmpeg")
 FFPROBE_BINARY = os.getenv("FFPROBE_BINARY", "ffprobe")

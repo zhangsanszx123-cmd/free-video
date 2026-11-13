@@ -2,6 +2,9 @@
 import { onUnmounted, ref, watch } from 'vue'
 import Icon from './Icon.vue'
 import { ui } from '../store.js'
+import { useRoute } from 'vue-router'
+
+const route = useRoute()
 
 const dialog = ref(null)
 let previousOverflow = ''
@@ -46,14 +49,15 @@ onUnmounted(() => { document.body.style.overflow = previousOverflow })
         </div>
         <h3 id="upgrade-title" class="mt-4 text-xl font-bold text-slate-950">{{ ui.upgradeReason || '开通 Pro' }}功能即将上线</h3>
         <p id="upgrade-description" class="mt-2 text-sm leading-relaxed text-slate-500">
-          在线支付暂未开放。<b class="text-slate-800">视频下载与平台字幕提取免费</b>；语音识别按会员月度额度扣除时长，免费用户也可登录后使用每月赠送额度。会员开通暂由管理员处理。
+          <b class="text-slate-800">视频下载与平台字幕提取免费</b>；语音识别按会员月度额度扣除时长，免费用户也可登录后使用每月赠送额度。会员套餐与开通方式见定价页。
         </p>
         <ul class="mt-4 space-y-2 text-sm text-slate-700">
           <li v-for="t in ['视频下载、音频提取与平台字幕免费', '月度额度在北京时间每月 1 日重置', '任务记录与转录文本保存 30 天', '已有文稿复制和导出不重复扣时长']" :key="t" class="flex items-center gap-2">
             <Icon name="check" :size="16" class="text-emerald-500" /> {{ t }}
           </li>
         </ul>
-        <button class="btn-primary mt-6 w-full rounded-xl py-3 font-bold" @click="ui.upgradeOpen = false">好的，先免费体验</button>
+        <RouterLink v-if="route.name !== 'pricing'" to="/pricing" class="btn-primary mt-6 flex min-h-12 w-full items-center justify-center rounded-xl font-bold" @click="ui.upgradeOpen = false">查看会员套餐</RouterLink>
+        <button class="mt-3 min-h-11 w-full rounded-xl py-3 font-bold" :class="route.name === 'pricing' ? 'btn-primary' : 'text-slate-600 hover:bg-slate-100'" @click="ui.upgradeOpen = false">好的，先免费体验</button>
       </div>
     </dialog>
 </template>
