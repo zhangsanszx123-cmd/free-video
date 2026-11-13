@@ -1,7 +1,7 @@
 """ZPAY payment tests on the real MySQL test database; the gateway is the in-process mock or monkeypatched."""
 import hashlib
 import threading
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -226,6 +226,47 @@ def test_late_payment_after_local_expiry_is_still_credited(client):
     client.post('/api/pay/mock/pay', data={'out_trade_no': number, 'action': 'paid'})
     assert row(number)['status'] == 'paid'
     assert order(client)['order']['out_trade_no'] != number
+
+
+def test_paid_cycles_replace_free_and_renew_upgrade_preserve_usage(client, monkeypatch):
+    clock = [datetime(2026, 11, 5, 2, 30)]
+    monkeypatch.setattr(account_store, 'utcnow', lambda: clock[0])
+    user = uid(client)
+    free_job = 'a' * 32
+    membership.reserve(user, free_job, 600, 'a' * 64)
+    membership.finalize(user, free_job, 'settled')
+    clock[0] = datetime(2026, 11, 7, 3, 45)
+    first = pay(client)
+    opening = ent(user)['starts_at']
+    summary = membership.summary(user)
+    assert summary['available_seconds'] == summary['limit_seconds'] == 36000
+    assert summary['used_seconds'] == 0
+    assert summary['resets_at'] == membership.iso(datetime(2026, 12, 7, 3, 45))
+    assert summary['ends_with_membership']
+    for job, seconds, state in [('b' * 32, 3600, 'settled'), ('c' * 32, 300, 'unknown')]:
+        membership.reserve(user, job, seconds, job.ljust(64, '0'))
+        membership.finalize(user, job, state)
+    clock[0] = datetime(2026, 11, 8, 4)
+    second = pay(client)
+    renewed = membership.summary(user)
+    assert second != first and ent(user)['starts_at'] == opening
+    assert renewed['period_start'] == summary['period_start']
+    assert renewed['resets_at'] == summary['resets_at']
+    assert renewed['available_seconds'] == 32100 and not renewed['ends_with_membership']
+    clock[0] = datetime(2026, 11, 9, 5)
+    pay(client, 'yearly')
+    upgraded = membership.summary(user)
+    assert ent(user)['starts_at'] == opening
+    assert upgraded['period_start'] == summary['period_start']
+    assert upgraded['resets_at'] == summary['resets_at']
+    assert upgraded['limit_seconds'] == 108000
+    assert upgraded['used_seconds'] == 3600 and upgraded['reserved_seconds'] == 300
+    assert upgraded['available_seconds'] == 104100
+    clock[0] = datetime(2026, 12, 7, 3, 45)
+    reset = membership.summary(user)
+    assert reset['used_seconds'] == 0 and reset['pending_previous_seconds'] == 300
+    membership.finalize(user, 'c' * 32, 'settled')
+    assert membership.summary(user)['available_seconds'] == 108000
 
 
 def test_orders_survive_account_deletion(client):

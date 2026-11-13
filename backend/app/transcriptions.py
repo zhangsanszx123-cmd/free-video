@@ -430,10 +430,12 @@ class TranscriptionManager:
                 self._stop.wait(config.ASR_POLL_SECONDS)
             raise TranscriptionError("CLOUD_PENDING", "云端识别尚未结束，已保留额度并继续后台核对；请勿重复提交")
         except (TranscriptionError, VideoError, AccountError) as e:
+            log.warning('transcription %s failed: code=%s transport=%s uncertain=%s',
+                        job.id, e.code if isinstance(e, (TranscriptionError, AccountError)) else 'VIDEO_FAILED',
+                        'direct-http' if direct else 'streaming' if streaming else 'file', uncertain)
             if uncertain:
                 # Keep the user from retrying into a second paid request.
-                message = ("识别连接已中断，无法自动续传；已保留额度，请管理员核对后再试" if streaming
-                           else "云端提交或处理状态待核对，已保留额度；请勿重复提交")
+                message = "暂时无法取得识别结果。本次识别时长已暂时冻结，尚未结算。请勿重复提交，可稍后查看状态或联系管理员处理。"
                 error = TranscriptionError("SUBMISSION_UNCERTAIN", message)
             else:
                 error = (e if isinstance(e, TranscriptionError) else TranscriptionError(e.code, str(e))

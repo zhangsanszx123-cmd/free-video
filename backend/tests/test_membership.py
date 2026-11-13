@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from app import account_store, asr, config, main, membership, transcriptions
 from app.asr import Recognition
 from app.errors import AccountError, TranscriptionError
-from .test_accounts import db, register, login, query, PASSWORD
+from .test_accounts import db, register, login, query, PASSWORD, REAL_INIT_SCHEMA
 from .test_transcriptions import cloud, wait, SAMPLE
 
 pytestmark = pytest.mark.skipif(not config.MYSQL_TEST_DATABASE, reason='MYSQL_TEST_DATABASE not configured')
@@ -51,20 +51,27 @@ def test_default_plans_and_auth(client):
     assert membership.summary(user)['used_seconds'] == 0
 
 
-def test_calendar_boundary_and_cross_month_finalization(client, monkeypatch):
+def test_anniversary_boundary_and_cross_period_finalization(client, monkeypatch):
     user = uid(client)
-    monkeypatch.setattr(account_store, 'utcnow', lambda: datetime(2026, 11, 30, 15, 59, 59))
-    assert membership.period()[0] == '2026-11'
+    anchor = datetime(2026, 10, 20, 2, 30, 0, 123456)
+    query('UPDATE users SET created_at=%s WHERE id=%s', (anchor, user))
+    boundary = datetime(2026, 11, 20, 2, 30, 0, 123456)
+    monkeypatch.setattr(account_store, 'utcnow', lambda: boundary - timedelta(microseconds=1))
+    original = membership.summary(user)
+    assert original['period_start'] == membership.iso(anchor)
+    assert original['resets_at'] == membership.iso(boundary)
     job = hold(user, 100)
     membership.finalize(user, job, 'unknown')
-    monkeypatch.setattr(account_store, 'utcnow', lambda: datetime(2026, 11, 30, 16, 0, 0))
+    monkeypatch.setattr(account_store, 'utcnow', lambda: boundary)
     summary = membership.summary(user)
-    assert membership.period()[0] == '2026-12'
+    assert summary['period_start'] == membership.iso(boundary)
+    assert summary['resets_at'] == membership.iso(datetime(2026, 12, 20, 2, 30, 0, 123456))
     assert summary['used_seconds'] == 0 and summary['pending_previous_seconds'] == 100
     assert summary['available_seconds'] == 1700
     membership.finalize(user, job, 'settled')
     assert membership.summary(user)['available_seconds'] == 1800
-    assert query("SELECT used_seconds FROM user_quota_periods WHERE user_id=%s AND period='2026-11'", (user,))[0]['used_seconds'] == 100
+    assert query('SELECT used_seconds FROM user_quota_periods WHERE user_id=%s AND period=%s',
+                 (user, 'free:' + anchor.isoformat(timespec='microseconds')))[0]['used_seconds'] == 100
 
 
 def test_concurrent_reservations_cannot_overspend(client):
@@ -112,10 +119,12 @@ def test_grant_config_snapshot_and_expiry(client, monkeypatch):
     used = hold(user, 60)
     membership.finalize(user, used, 'settled')
     membership.grant('alice', 'monthly')
-    assert membership.summary(user)['available_seconds'] == 35940
+    assert membership.summary(user)['available_seconds'] == 36000
+    paid = hold(user, 120)
+    membership.finalize(user, paid, 'settled')
     membership.configure('monthly', 2990, 72000)
     assert membership.summary(user)['limit_seconds'] == 36000
-    assert membership.summary(user)['used_seconds'] == 60
+    assert membership.summary(user)['used_seconds'] == 120
     with pytest.raises(ValueError, match='已有有效会员'):
         membership.grant('alice', 'yearly')
     query('UPDATE user_memberships SET expires_at=%s WHERE user_id=%s', (account_store.utcnow() - timedelta(seconds=1), user))
@@ -123,17 +132,116 @@ def test_grant_config_snapshot_and_expiry(client, monkeypatch):
     assert membership.summary(user)['available_seconds'] == 1740
     membership.grant('alice', 'yearly')
     assert membership.summary(user)['limit_seconds'] == 108000
-    assert membership.summary(user)['used_seconds'] == 60
+    assert membership.summary(user)['used_seconds'] == 0
+    assert membership.summary(user)['available_seconds'] == 108000
 
 
-def test_free_config_only_changes_next_month(client, monkeypatch):
-    user = uid(client)
+def test_free_config_only_changes_next_cycle(client, monkeypatch):
     monkeypatch.setattr(account_store, 'utcnow', lambda: datetime(2026, 11, 5))
+    user = uid(client)
     assert membership.summary(user)['limit_seconds'] == 1800
     membership.configure('free', 0, 3600)
     assert membership.summary(user)['limit_seconds'] == 1800
+    monkeypatch.setattr(account_store, 'utcnow', lambda: datetime(2026, 12, 1))
+    assert membership.summary(user)['limit_seconds'] == 1800
     monkeypatch.setattr(account_store, 'utcnow', lambda: datetime(2026, 12, 5))
     assert membership.summary(user)['limit_seconds'] == 3600
+
+
+def test_registration_dates_produce_independent_free_cycles(client, monkeypatch):
+    user = uid(client)
+    query('UPDATE users SET created_at=%s WHERE id=%s', (datetime(2026, 10, 12, 1, 5), user))
+    other = register(client, 'bob_01').json()['user']['id']
+    query('UPDATE users SET created_at=%s WHERE id=%s', (datetime(2026, 10, 25, 3, 10), other))
+    monkeypatch.setattr(account_store, 'utcnow', lambda: datetime(2026, 11, 15))
+    first, second = membership.summary(user), membership.summary(other)
+    assert first['resets_at'] == membership.iso(datetime(2026, 12, 12, 1, 5))
+    assert second['resets_at'] == membership.iso(datetime(2026, 11, 25, 3, 10))
+    assert first['available_seconds'] == second['available_seconds'] == 1800
+
+
+def test_pro_anniversary_ignores_registration_day_and_month_start(client, monkeypatch):
+    user = uid(client)
+    query('UPDATE users SET created_at=%s WHERE id=%s', (datetime(2026, 10, 5, 2), user))
+    opening = datetime(2026, 11, 20, 4, 15)
+    monkeypatch.setattr(account_store, 'utcnow', lambda: opening)
+    free = hold(user, 600)
+    membership.finalize(user, free, 'settled')
+    membership.grant('alice', 'yearly')
+    initial = membership.summary(user)
+    assert initial['limit_seconds'] == initial['available_seconds'] == 108000
+    assert initial['period_start'] == membership.iso(opening)
+    assert initial['reset_basis'] == 'membership'
+    paid = hold(user, 60)
+    membership.finalize(user, paid, 'settled')
+    for day in (1, 5, 19):
+        monkeypatch.setattr(account_store, 'utcnow', lambda day=day: datetime(2026, 12, day, 4, 15))
+        assert membership.summary(user)['available_seconds'] == 107940
+    monkeypatch.setattr(account_store, 'utcnow', lambda: datetime(2026, 12, 20, 4, 15))
+    renewed = membership.summary(user)
+    assert renewed['available_seconds'] == 108000
+    assert renewed['used_seconds'] == 0
+    assert renewed['resets_at'] == membership.iso(datetime(2027, 1, 20, 4, 15))
+    assert not renewed['ends_with_membership']
+
+
+def test_membership_expiry_restores_registration_cycle_without_double_free_grant(client, monkeypatch):
+    user = uid(client)
+    query('UPDATE users SET created_at=%s WHERE id=%s', (datetime(2026, 10, 25, 2), user))
+    monkeypatch.setattr(account_store, 'utcnow', lambda: datetime(2026, 11, 10, 3))
+    membership.grant('alice', 'monthly')
+    # A membership can expire within a registration cycle in which free quota was already used.
+    expiry = datetime(2026, 11, 20, 3)
+    query('UPDATE user_memberships SET expires_at=%s WHERE user_id=%s', (expiry, user))
+    free_key = 'free:' + datetime(2026, 10, 25, 2).isoformat(timespec='microseconds')
+    query('INSERT INTO user_quota_periods (user_id,period,plan_code,limit_seconds,used_seconds) '
+          'VALUES (%s,%s,%s,%s,%s)', (user, free_key, 'free', 1800, 600))
+    before = membership.summary(user)
+    assert before['ends_with_membership'] and before['period_end'] == membership.iso(expiry)
+    assert before['limit_seconds'] == 36000
+    monkeypatch.setattr(account_store, 'utcnow', lambda: expiry)
+    after = membership.summary(user)
+    assert after['plan'] == 'free' and after['available_seconds'] == 1200
+    assert after['resets_at'] == membership.iso(datetime(2026, 11, 25, 2))
+
+
+def test_old_free_hold_is_settled_in_its_original_cycle_after_pro_opening(client, monkeypatch):
+    user = uid(client)
+    pending = hold(user, 100)
+    membership.finalize(user, pending, 'unknown')
+    membership.grant('alice', 'monthly')
+    summary = membership.summary(user)
+    assert summary['limit_seconds'] == 36000
+    assert summary['pending_previous_seconds'] == 100
+    assert summary['available_seconds'] == 35900
+    membership.finalize(user, pending, 'settled')
+    assert membership.summary(user)['available_seconds'] == 36000
+    assert membership.summary(user)['used_seconds'] == 0
+    paid = hold(user, 36000)
+    with pytest.raises(TranscriptionError, match='不足'):
+        hold(user, 1)  # There is no additional 30-minute free balance to spend.
+    membership.finalize(user, paid, 'released')
+    assert membership.summary(user)['available_seconds'] == 36000
+
+
+def test_schema_widening_retains_legacy_holds_and_is_idempotent(client):
+    user = uid(client)
+    for table in ('user_quota_periods', 'quota_reservations'):
+        query(f'ALTER TABLE {table} MODIFY COLUMN period CHAR(7) CHARACTER SET ascii COLLATE ascii_bin NOT NULL')
+    query('INSERT INTO user_quota_periods (user_id,period,plan_code,limit_seconds,reserved_seconds) '
+          'VALUES (%s,%s,%s,%s,%s)', (user, '2026-11', 'free', 1800, 100))
+    job = job_id()
+    query('INSERT INTO quota_reservations (job_id,user_id,period,seconds,state,fingerprint,updated_at) '
+          'VALUES (%s,%s,%s,%s,%s,%s,%s)', (job, user, '2026-11', 100, 'unknown', job.ljust(64, '0'), account_store.utcnow()))
+    REAL_INIT_SCHEMA()
+    REAL_INIT_SCHEMA()
+    for table in ('user_quota_periods', 'quota_reservations'):
+        assert query(f"SHOW COLUMNS FROM {table} LIKE 'period'")[0]['Type'] == 'varchar(40)'
+    assert membership.summary(user)['pending_previous_seconds'] == 100
+    membership.finalize(user, job, 'settled')
+    assert query('SELECT used_seconds,reserved_seconds FROM user_quota_periods WHERE user_id=%s AND period=%s',
+                 (user, '2026-11'))[0] == dict(used_seconds=100, reserved_seconds=0)
+    assert membership.summary(user)['available_seconds'] == 1800
 
 
 def test_guest_asr_blocked_native_subtitles_free(client, monkeypatch):

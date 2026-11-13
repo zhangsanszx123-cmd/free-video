@@ -18,9 +18,9 @@ const period = computed(() => (props.plan.months === 12 ? '12 个月' : `${props
 const expiresText = computed(() => membership.data?.expires_at
   ? new Date(membership.data.expires_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : '')
 const effect = computed(() => ({
-  new: `支付成功后立即生效，有效期 ${period.value}，每月 ${durationLabel(props.plan.monthly_seconds)} 语音识别时长。`,
-  renew: `在当前到期时间（${expiresText.value}）基础上顺延 ${period.value}。`,
-  upgrade: `立即升级为年卡：有效期 ${period.value}，月卡剩余时长自动顺延到年卡之后；本月额度立即提升为 ${durationLabel(props.plan.monthly_seconds)}。`,
+  new: `支付成功后立即生效，有效期 ${period.value}，每月 ${durationLabel(props.plan.monthly_seconds)} 语音识别时长，按开通时间逐月重置，不叠加免费额度。`,
+  renew: `在当前到期时间（${expiresText.value}）基础上顺延 ${period.value}，保留原额度周期，不提前重置。`,
+  upgrade: `立即升级为年卡：有效期 ${period.value}，月卡剩余有效期自动顺延到年卡之后；本期额度上限提升为 ${durationLabel(props.plan.monthly_seconds)}，保留已用量、预占和原重置日期。`,
   refused: '年卡有效期内不能购买月卡，可直接续费年卡。',
 }[kind.value]))
 

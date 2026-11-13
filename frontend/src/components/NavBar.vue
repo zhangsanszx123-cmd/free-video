@@ -4,7 +4,7 @@ import { useRoute } from 'vue-router'
 import Icon from './Icon.vue'
 import UserAvatar from './UserAvatar.vue'
 import QuotaCard from './QuotaCard.vue'
-import { loadMembership } from '../membership.js'
+import { loadMembership, membership } from '../membership.js'
 import { account, openAuth } from '../account.js'
 
 const open = ref(false)
@@ -25,6 +25,13 @@ function openDialog(tab) {
   openAuth({ tab })
 }
 const displayName = computed(() => account.user?.nickname || account.user?.username || '')
+const isPro = computed(() => ['monthly', 'yearly'].includes(membership.data?.plan))
+const membershipLabel = computed(() => membership.data
+  ? (isPro.value ? 'PRO 用户' : '普通用户')
+  : (membership.error ? '身份暂不可用' : '身份加载中…'))
+const membershipTone = computed(() => isPro.value
+  ? 'bg-amber-50 text-amber-700 ring-amber-200'
+  : 'bg-slate-100 text-slate-600 ring-slate-200')
 watch(menuOpen, value => { if (value) loadMembership() })
 watch(open, value => { if (value && account.loggedIn) loadMembership() })
 
@@ -84,10 +91,18 @@ onUnmounted(() => {
           </button>
           <div v-if="menuOpen" id="account-menu" role="menu"
             class="absolute right-0 top-12 max-h-[calc(100dvh-6rem)] w-80 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
-            <div class="px-3 py-2">
-              <div class="truncate text-sm font-bold text-slate-900">{{ displayName }}</div>
-              <div class="truncate text-xs text-slate-500">@{{ account.user.username }}</div>
-            </div>
+            <RouterLink to="/account" role="menuitem" :aria-label="`${displayName}，个人中心`"
+              class="mb-2 flex min-h-16 items-center gap-3 rounded-xl bg-indigo-50/60 px-3 py-3 transition hover:bg-indigo-100/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+              @click="menuOpen = false">
+              <UserAvatar :name="displayName" :size="40" />
+              <div class="min-w-0 flex-1">
+                <div class="truncate text-sm font-bold text-slate-900">{{ displayName }}</div>
+                <span class="mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset" :class="membershipTone">
+                  <Icon v-if="isPro" name="crown" :size="12" />{{ membershipLabel }}
+                </span>
+              </div>
+              <Icon name="chevron" :size="16" class="-rotate-90 text-indigo-500" />
+            </RouterLink>
             <QuotaCard compact class="mb-2" />
             <RouterLink to="/history?status=active" role="menuitem" class="flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm text-slate-700 hover:bg-indigo-50"><Icon name="clock" :size="16" />执行中任务</RouterLink>
             <RouterLink to="/history" role="menuitem" class="flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm text-slate-700 hover:bg-indigo-50"><Icon name="file" :size="16" />历史任务</RouterLink>
@@ -116,14 +131,18 @@ onUnmounted(() => {
     <Transition enter-from-class="opacity-0 -translate-y-2" leave-to-class="opacity-0 -translate-y-2"
       enter-active-class="transition duration-200" leave-active-class="transition duration-150">
       <div v-if="open" id="mobile-navigation" class="absolute inset-x-0 top-16 max-h-[calc(100dvh-4rem)] overflow-y-auto border-b border-slate-200 bg-white p-3 shadow-xl md:hidden">
-        <div v-if="account.loggedIn" class="mb-2 flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-3">
+        <RouterLink v-if="account.loggedIn" to="/account" :aria-label="`${displayName}，个人中心`"
+          class="mb-2 flex min-h-16 items-center gap-3 rounded-xl bg-indigo-50/60 px-3 py-3 transition hover:bg-indigo-100/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+          @click="open = false">
           <UserAvatar :name="displayName" :size="40" />
           <div class="min-w-0 flex-1">
             <div class="truncate font-bold text-slate-900">{{ displayName }}</div>
-            <div class="truncate text-xs text-slate-500">@{{ account.user.username }}</div>
+            <span class="mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset" :class="membershipTone">
+              <Icon v-if="isPro" name="crown" :size="12" />{{ membershipLabel }}
+            </span>
           </div>
-          <RouterLink to="/account" class="flex min-h-11 items-center rounded-lg px-3 text-sm font-semibold text-indigo-600 hover:bg-indigo-50">个人中心</RouterLink>
-        </div>
+          <Icon name="chevron" :size="16" class="-rotate-90 text-indigo-500" />
+        </RouterLink>
         <div v-else-if="account.status !== 'unknown'" class="mb-2 grid grid-cols-2 gap-2">
           <button type="button" class="btn-ghost flex min-h-11 items-center justify-center font-semibold" @click="openDialog('login')">登录</button>
           <button type="button" class="btn-primary flex min-h-11 items-center justify-center rounded-xl font-semibold" @click="openDialog('register')">免费注册</button>

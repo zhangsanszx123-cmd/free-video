@@ -2,6 +2,8 @@ backend/.venv/
 backend/.env
 backend/downloads/
 backend/transcriptions/
+backend/server.stderr.log
+backend/server.stdout.log
 __pycache__/
 .pytest_cache/
 frontend/node_modules/

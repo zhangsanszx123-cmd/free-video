@@ -49,7 +49,7 @@ def outcome(active, plan_code, months, now):
     if not active:
         return "new", membership.months_after(now, months)
     if active["plan_code"] == plan_code:
-        return "renew", membership.months_after(active["expires_at"], months)
+        return "renew", membership.renewal_expiry(active["starts_at"], active["expires_at"], months)
     if active["plan_code"] == "monthly" and plan_code == "yearly":
         return "upgrade", membership.months_after(now, months) + (active["expires_at"] - now)
     return "refused", None
@@ -144,7 +144,7 @@ def fulfil(out_trade_no: str, trade_no: str, paid_cents, source: str):
             active = _active(cur, uid)
             kind, expires = outcome(active, order["plan_code"], order["months"], now)
             if kind != "refused":
-                membership.apply_membership(cur, uid, order, active["starts_at"] if kind == "renew" else now, expires)
+                membership.apply_membership(cur, uid, order, active["starts_at"] if active else now, expires)
         status = "refund_required" if kind == "refused" else "paid"
         fulfilment = "none" if kind == "refused" else kind
         cur.execute("UPDATE payment_orders SET status=%s,trade_no=%s,fulfilment=%s,membership_expires_at=%s,paid_at=%s "

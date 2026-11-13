@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS user_memberships (
 
 CREATE TABLE IF NOT EXISTS user_quota_periods (
   user_id BIGINT UNSIGNED NOT NULL,
-  period CHAR(7) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  period VARCHAR(40) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   plan_code VARCHAR(16) NOT NULL,
   limit_seconds INT UNSIGNED NOT NULL,
   used_seconds INT UNSIGNED NOT NULL DEFAULT 0,
@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS transcription_records (
 CREATE TABLE IF NOT EXISTS quota_reservations (
   job_id CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
   user_id BIGINT UNSIGNED NOT NULL,
-  period CHAR(7) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  period VARCHAR(40) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   seconds INT UNSIGNED NOT NULL,
   state VARCHAR(16) NOT NULL,
   fingerprint CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,

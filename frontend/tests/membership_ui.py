@@ -74,17 +74,35 @@ for i, source in enumerate(['asr','platform_subtitle']):
         p.get_by_role('button', name='会员与额度', exact=True).click()
         quota = p.get_by_role('region', name='语音识别额度')
         expect(quota).to_contain_text('剩余 30分钟')
+        summary = p.request.get(BASE + '/api/account/membership').json()
+        registered = p.request.get(BASE + '/api/auth/me').json()['user']['created_at']
+        from datetime import datetime
+        # Public account timestamps are rounded to seconds; quota anchors retain DB microseconds.
+        self.assertEqual(datetime.fromisoformat(summary['period_start']).replace(microsecond=0),
+                         datetime.fromisoformat(registered.replace('Z', '+00:00')))
+        self.assertEqual(summary['reset_basis'], 'registration')
+        expect(quota).to_contain_text('下次重置')
         p.locator('nav').get_by_role('button', name=self.username, exact=True).click()
         menu = p.get_by_role('menu')
         expect(menu).to_contain_text('每月 30分钟')
+        expect(menu).to_contain_text('下次重置')
         expect(menu.get_by_role('menuitem', name='历史任务')).to_be_visible()
+        profile = menu.get_by_role('menuitem', name=f'{self.username}，个人中心', exact=True)
+        expect(profile.get_by_text('普通用户', exact=True)).to_be_visible()
         menu.screenshot(path=SHOTS / 'account-menu.png')
-        p.keyboard.press('Escape')
+        profile.focus()
+        p.keyboard.press('Enter')
+        expect(menu).to_be_hidden()  # Also closes when already on /account.
+        expect(p).to_have_url(BASE + '/account')
         p.goto(BASE + '/pricing')
         cards = p.locator('article')
         expect(cards).to_have_count(3)
         expect(cards.nth(1)).to_contain_text('19.9')
         expect(cards.nth(1)).to_contain_text('10小时')
+        expect(cards.nth(1)).to_contain_text('Pro 额度不叠加免费额度')
+        expect(cards.nth(0)).to_contain_text('按注册时间逐月重置')
+        expect(cards.nth(1)).to_contain_text('按 Pro 开通时间逐月重置')
+        expect(p.get_by_text('每月 1 日重置', exact=False)).to_have_count(0)
         expect(cards.nth(2)).to_contain_text('99')
         expect(cards.nth(2)).to_contain_text('30小时')
         # Backend runs without ZPAY credentials here; payment flows live in payment_ui.py.
@@ -168,14 +186,40 @@ for i, source in enumerate(['asr','platform_subtitle']):
             p.get_by_role('button', name='会员与额度', exact=True).click()
             expect(p.get_by_role('region', name='语音识别额度')).to_contain_text('年卡会员')
             expect(p.get_by_role('region', name='语音识别额度')).to_contain_text('每月 30小时')
+            expect(p.get_by_role('region', name='语音识别额度')).to_contain_text('下次重置')
             self.assertTrue(p.evaluate('document.documentElement.scrollWidth <= innerWidth'))
             p.screenshot(path=SHOTS / f'quota-{width}.png', full_page=True)
+            if width < 768:
+                p.get_by_role('button', name='打开导航菜单').click()
+                menu = p.locator('#mobile-navigation')
+                profile = menu.get_by_role('link', name=f'{self.username}，个人中心', exact=True)
+            else:
+                p.locator('nav').get_by_role('button', name=self.username, exact=True).click()
+                menu = p.get_by_role('menu')
+                profile = menu.get_by_role('menuitem', name=f'{self.username}，个人中心', exact=True)
+            expect(profile.get_by_text('PRO 用户', exact=True)).to_be_visible()
+            menu.screenshot(path=SHOTS / f'pro-menu-{width}.png')
+            profile.click()
+            expect(menu).to_be_hidden()
             for path in ('/history', '/pricing'):
                 p.goto(BASE + path)
                 if path == '/history': expect(p.locator('article')).to_have_count(2)
                 else: expect(p.locator('article')).to_have_count(3)
                 self.assertTrue(p.evaluate('document.documentElement.scrollWidth <= innerWidth'))
                 p.screenshot(path=SHOTS / f'{path[1:]}-{width}.png', full_page=True)
+
+
+    def test_last_monthly_cycle_is_labelled_as_membership_expiry(self):
+        self.seed('monthly')
+        p = self.page
+        p.goto(BASE + '/account?section=membership')
+        quota = p.get_by_role('region', name='语音识别额度')
+        expect(quota).to_contain_text('每月 10小时')
+        expect(quota).to_contain_text('会员到期')
+        summary = p.request.get(BASE + '/api/account/membership').json()
+        self.assertEqual(summary['limit_seconds'], 36000)
+        self.assertEqual(summary['available_seconds'], 36000 - 91)
+        self.assertEqual(summary['resets_at'], summary['expires_at'])
 
 
 if __name__ == '__main__':

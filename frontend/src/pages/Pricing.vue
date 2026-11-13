@@ -42,11 +42,12 @@ async function buy(plan) {
 }
 const faqs = computed(() => [
   { q: '什么操作会扣时长？', a: '仅语音识别扣时长，按服务端核实的音频时长计算，整秒向上取整。视频下载、提取平台现成字幕、复制和导出已有文稿均不扣识别时长。' },
-  { q: '额度什么时候重置？', a: '所有套餐在北京时间每月 1 日 00:00 重置，未用完的时长不结转。年卡每月发放额度，不一次性发放全年时长。' },
+  { q: '额度什么时候重置？', a: '免费用户从注册时间起，Pro 用户从开通时间起，每月同日同一时间重置（北京时间）。遇到当月没有的日期按月底处理，后续月份仍按最初日期计算。未用完的时长不结转，年卡按月发放额度。' },
+  { q: 'Pro 会叠加免费额度吗？', a: '不叠加。账号只使用当前套餐标注的一套额度。首次开通立即开始新的 Pro 周期，免费剩余额度不转入；会员到期后按注册周期恢复免费套餐。' },
   paymentEnabled.value
     ? { q: '如何购买？支付后多久生效？', a: '登录后点击开通，跳转支付宝收银台付款，完成后自动返回本站并开通会员，通常几秒内生效。如果页面提示确认中，可稍后在个人中心「会员与额度」查看订单状态，同一笔付款不会重复开通或重复扣费。' }
     : { q: '现在可以在线购买吗？', a: '在线支付暂未开放，会员开通由管理员处理。本页价格与额度由服务端套餐配置提供。' },
-  { q: '可以续费或升级吗？', a: '同一套餐续费会在当前到期时间基础上顺延；月卡可随时升级年卡，立即生效，月卡剩余时长顺延到年卡之后。年卡有效期内无需购买月卡。' },
+  { q: '可以续费或升级吗？', a: '同档续费延长有效期，不提前重置额度或改变原重置日期。月卡升级年卡立即提高本期额度上限，保留已用量、预占和原重置日期，月卡剩余有效期顺延到年卡之后。年卡有效期内不能购买月卡。' },
   { q: '任务和文稿能保存多久？', a: '任务记录及转录文本保存 30 天。视频与音频为临时文件，下载地址可能过期。' },
 ])
 </script>
@@ -55,7 +56,7 @@ const faqs = computed(() => [
   <section class="hero-bg py-12 sm:py-16">
     <div class="mx-auto max-w-6xl px-4 sm:px-6">
       <header class="text-center">
-        <div class="inline-flex items-center gap-2 rounded-full bg-rose-50 px-3 py-1 text-xs font-bold text-rose-600 ring-1 ring-rose-200"><Icon name="clock" :size="14" /> 每月 1 日重置 · 北京时间</div>
+        <div class="inline-flex items-center gap-2 rounded-full bg-rose-50 px-3 py-1 text-xs font-bold text-rose-600 ring-1 ring-rose-200"><Icon name="clock" :size="14" /> 按个人周期重置 · 北京时间</div>
         <h1 class="mt-4 text-3xl font-extrabold tracking-tight sm:text-5xl">选择适合你的 <span class="text-gold">Pro 方案</span></h1>
         <p class="mx-auto mt-4 max-w-2xl text-sm text-slate-600 sm:text-base">视频下载与平台字幕提取免费，按需选择语音识别时长。</p>
       </header>
@@ -71,7 +72,7 @@ const faqs = computed(() => [
             <p class="flex items-center gap-2 text-sm font-semibold" :class="plan.code === 'yearly' ? 'text-amber-200' : 'text-indigo-700'"><Icon name="clock" :size="17" />视频转文字时长</p>
             <p class="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1"><strong class="text-3xl font-extrabold tracking-tight sm:text-4xl" :class="plan.code === 'yearly' ? 'text-amber-300' : 'text-indigo-700'">{{ durationLabel(plan.monthly_seconds) }}</strong><span class="text-sm font-medium" :class="plan.code === 'yearly' ? 'text-amber-200/80' : 'text-indigo-600'">/ 月</span></p>
           </div>
-          <ul class="mt-6 flex-1 space-y-3 text-sm"><li v-for="text in ['视频下载与平台字幕提取免费', '北京时间每月 1 日重置', '已有文稿导出不重复扣量', '任务记录与转录文本保存 30 天']" :key="text" class="flex items-start gap-2"><Icon name="check" :size="16" class="mt-0.5 shrink-0" :class="plan.code === 'yearly' ? 'text-amber-400' : 'text-emerald-500'" />{{ text }}</li></ul>
+          <ul class="mt-6 flex-1 space-y-3 text-sm"><li v-for="text in ['视频下载与平台字幕提取免费', plan.code === 'free' ? '按注册时间逐月重置' : '按 Pro 开通时间逐月重置', plan.code === 'free' ? '未用完的额度不结转' : 'Pro 额度不叠加免费额度', '已有文稿导出不重复扣量', '任务记录与转录文本保存 30 天']" :key="text" class="flex items-start gap-2"><Icon name="check" :size="16" class="mt-0.5 shrink-0" :class="plan.code === 'yearly' ? 'text-amber-400' : 'text-emerald-500'" />{{ text }}</li></ul>
           <RouterLink v-if="plan.code === 'free'" to="/account" class="mt-8 flex min-h-12 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-3.5 font-bold text-slate-600">查看我的额度</RouterLink>
           <button v-else type="button" class="mt-8 min-h-12 w-full rounded-xl px-4 py-3.5 font-bold disabled:cursor-not-allowed disabled:opacity-50" :class="plan.code === 'yearly' ? 'btn-gold' : 'btn-primary'"
             :disabled="paymentEnabled && (busyMembership || kindOf(plan.code) === 'refused')" @click="buy(plan)">{{ buttonLabel(plan) }}</button>

@@ -1,5 +1,26 @@
 # FreeVideo 方案设计文档
 
+## 2026-11-13 识别异常的展示与诊断
+
+- 修复 `asr_flash` 完整性判断：`usage.duration` 是句尾报告的处理用量，不应要求等于本地音轨时长；HTTP 流正常读完、末句 final、累计文本与最终句/词时间轴一致后返回成功。尾部仅含用量的事件不覆盖末句状态；读取异常、未结束句和空响应仍失败并保留原预占保护。依据：[官方 Flash HTTP API](https://help.aliyun.com/en/model-studio/fun-asr-flash-recorded-speech-recognition-http-api)。
+- 本地复现、离线回放、回归测试与已有任务恢复记录见 [ASR 修复验证](./asr-flash-verification.md)。供应商成本与用户额度独立核算；修复代码不自动重发旧任务或修改未决流水。
+- `TranscriptPanel` 按 `SUBMISSION_UNCERTAIN` 统一展示通俗标题与说明，兼容已保存的旧错误文本；「查看处理状态」只查询现有任务，直接 HTTP 识别的未决请求仍需管理员核对，不能承诺自动恢复。
+- `transcriptions` 记录任务 ID、错误码、传输类型与不确定标记；`asr_flash` 记录 HTTP 状态、异常类型、受限服务错误码和完整性指标。日志不写凭证、音频、正文或原始响应体，保留原扣量与防重复提交规则。
+
+## 2026-11-13 账号菜单身份入口
+
+- `NavBar.vue` 复用共享 `membership.data`，将桌面下拉框和手机账号卡改为原生 `RouterLink` 个人中心入口，整行可点、支持键盘焦点，点击后主动收起菜单（包括已在个人中心时）。
+- 顶部显示首字母头像、昵称/用户名及右箭头；按用户最终选择恢复浅靛色卡片、原文字颜色，下方根据 `plan` 显示灰色「普通用户」或浅金色皇冠「PRO 用户」标签。未取得会员状态时显示加载/不可用文案，不用默认免费身份代替真实状态。
+
+## 2026-11-13 个人周期与单一套餐额度
+
+- `membership.period(anchor, now)` 按北京时间从原始时间锚点推导 `[start,end)`；免费锚点为 `users.created_at`，Pro 为 `user_memberships.starts_at`，保留时分秒和微秒，短月不造成后续日期漂移。无需定时清零，首次查询或预占新周期时幂等创建额度记录。
+- `user_quota_periods.period`、`quota_reservations.period` 改为 `VARCHAR(40)`；键为 `free:<UTC周期起点>` 或 `pro:<UTC周期起点>`。任一时刻只提供当前套餐额度，前缀用于隔离历史账目，不代表两个可同时消费的余额。`account_store.init_schema` 仅将旧 `CHAR(7)` 扩宽，保留旧周期的结算能力；不搬迁旧自然月用量。
+- 查询、预占共用一次事务内捕获的时间和用户行锁，避免边界计算不一致；结算继续使用预占记录的周期键。跨周期未决预占仍减少当前可用量，原有去重、幂等和失败释放保持有效。
+- `apply_membership` 首次开通建立新的 Pro 周期；同档续费、升级均保留原开通锚点和当前 Pro 已用/预占。升级提高当前上限；支付有效期的剩余时长顺延规则保留。`renewal_expiry` 对原周年边界上的月底续费从原锚点计算，避免 1/31 → 2/28 后续费漂移至 3/28。
+- `/api/account/membership` 保留总额度/已用/预占/可用字段，`period_start/resets_at` 使用 UTC ISO 时间；新增 `period_end`、`reset_basis=registration|membership`、`ends_with_membership`。会员到期前最后一期结束时间截断至 `expires_at`，前端标为会员到期，而非承诺再次重置 Pro 额度。
+- `QuotaCard` 单余额、单进度条，日期区仅保留一行「下次重置」（会员最后一期为「会员到期」），时间精确到分钟，移除本期开始和重复的规则说明；完整规则留在 `Pricing`、`UpgradeModal` 和 `PayModal`。测试与人工验收见 [个人周期额度验收](./anniversary-quota-verification.md)。以下早期自然月架构记录以本节为准。
+
 ## 2026-11-13 ZPAY 支付架构
 
 - `zpay.py`：协议薄封装——`sign_string/sign/verify`（排序、排除 sign/sign_type/空值、不编码、`md5(...+KEY)` 小写）、`money/cents`（整数分 ↔ 两位小数）、`submit_form` 生成 submit.php 表单字段（notify_url=`PUBLIC_BASE_URL/api/pay/notify`，return_url=`PUBLIC_BASE_URL/pay/result`）、`query_order`（`api.php?act=order`，3 秒超时，异常抛 `ZpayError`，不记录含 KEY 的 URL）、`refund`。`enabled()` = 配置了 PID+KEY 或模拟模式；`mock_active()` 在 `SESSION_SECURE=true` 时恒为 False。

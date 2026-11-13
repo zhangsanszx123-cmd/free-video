@@ -50,13 +50,20 @@ def _cursor():
 
 
 def init_schema():
-    """Run the CREATE TABLE statements of sql/schema.sql in the configured database."""
+    """Create tables and widen legacy calendar-month quota keys for anniversary periods."""
     statements = [s.strip() for s in SCHEMA_FILE.read_text(encoding="utf-8").split(";")]
     with _cursor() as cur:
         for sql in statements:
             body = "\n".join(line for line in sql.splitlines() if not line.lstrip().startswith("--")).strip()
             if body.upper().startswith("CREATE TABLE"):
                 cur.execute(body)
+        # Widen only; old quota rows and pending reservations remain available for settlement.
+        for table in ('user_quota_periods', 'quota_reservations'):
+            cur.execute(f"SHOW COLUMNS FROM {table} LIKE 'period'")
+            column = cur.fetchone()
+            if column and column['Type'].lower() == 'char(7)':
+                cur.execute(f"ALTER TABLE {table} MODIFY COLUMN period VARCHAR(40) "
+                            "CHARACTER SET ascii COLLATE ascii_bin NOT NULL")
 
 
 def _insert_session(cur, user_id: int, session: dict):

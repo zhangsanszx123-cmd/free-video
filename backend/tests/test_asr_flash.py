@@ -122,6 +122,38 @@ def test_flash_job_budget_exports_and_no_oss(client, monkeypatch, flash, mode):
         assert len(calls) == 1
 
 
+@pytest.mark.parametrize('ending', ['normal', 'metadata', 'disconnect', 'unfinished', 'empty'])
+def test_shorter_usage_does_not_mean_incomplete_audio(monkeypatch, tmp_path, flash, ending):
+    event = {'output': {'text': '完整文字。', 'sentence': sentence('完整文字。', 100, 98380)},
+             'usage': {'duration': 98}}
+    if ending == 'unfinished':
+        event['output']['sentence']['sentence_end'] = False
+    class Body(httpx.SyncByteStream):
+        def __iter__(self):
+            if ending == 'empty':
+                return
+            yield ('data:' + json.dumps(event) + '\n\n').encode()
+            if ending == 'disconnect':
+                raise httpx.ReadError('private response must not leak')
+            if ending == 'metadata':
+                yield b'data:{"usage":{"duration":98}}\n\n'
+    client = httpx.Client(transport=httpx.MockTransport(lambda _: httpx.Response(200, stream=Body())))
+    monkeypatch.setattr(asr_flash.httpx, 'stream', client.stream)
+    audio = tmp_path / 'input.mp3'
+    audio.write_bytes(b'audio')
+    try:
+        if ending in ('normal', 'metadata'):
+            result = asr_flash.FunASRFlash().recognize(audio, lambda _: None, threading.Event(), duration=109.017688)
+            assert result.status == 'SUCCEEDED' and result.duration == 98
+            assert ''.join(c.text for c in result.cues) == '完整文字。'
+        else:
+            with pytest.raises(TranscriptionError) as exc:
+                asr_flash.FunASRFlash().recognize(audio, lambda _: None, threading.Event(), duration=109.017688)
+            assert exc.value.code == 'CLOUD_NETWORK'
+    finally:
+        client.close()
+
+
 def test_restart_keeps_direct_hold(monkeypatch, flash):
     manager = main.transcription_manager
     manager.ledger.reserve("flash", 2, None, "same-video")

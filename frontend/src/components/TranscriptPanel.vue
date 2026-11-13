@@ -30,6 +30,7 @@ let timer
 
 const text = computed(() => timestamps.value ? result.value?.timed_text : result.value?.text)
 const canTranscribe = computed(() => ['NO_SUBTITLES', 'EMPTY_SUBTITLES', 'ASR_REQUIRED'].includes(errorCode.value))
+const awaitingResult = computed(() => errorCode.value === 'SUBMISSION_UNCERTAIN')
 const sourceLabel = computed(() => ({ platform_subtitle: '平台字幕', automatic_subtitle: '平台自动字幕', asr: '语音转写' }[result.value?.source] || ''))
 const phaseLabel = computed(() => ({ queued: '排队', subtitles: '检查字幕', audio: '获取音轨', upload: '上传音频', recognizing: '语音识别', export: '生成字幕' }[job.value?.stage] || '提取字幕'))
 
@@ -246,7 +247,11 @@ onUnmounted(resetRequest)
 
     <div v-if="error && !busy" class="mt-4 rounded-xl p-4 text-sm leading-6"
       :class="canTranscribe ? 'bg-slate-50 text-slate-600' : 'bg-rose-50 text-rose-700'" :role="canTranscribe ? 'status' : 'alert'">
-      <p>{{ error }}</p>
+      <template v-if="awaitingResult">
+        <p class="font-semibold">暂时无法取得识别结果</p>
+        <p class="mt-1">本次识别时长已暂时冻结，尚未结算。请勿重复提交，可稍后查看状态或联系管理员处理。</p>
+      </template>
+      <p v-else>{{ error }}</p>
       <template v-if="canTranscribe">
         <p class="mt-2 text-xs leading-5">音频将发送至云端识别，最长 {{ maxMinutes }} 分钟。识别原语音，不自动翻译或润色。</p>
         <button type="button" class="btn-primary mt-3 inline-flex min-h-11 items-center gap-2 rounded-xl px-4 font-semibold"
@@ -257,7 +262,7 @@ onUnmounted(resetRequest)
       </template>
       <button v-else-if="errorCode === 'SUBMISSION_UNCERTAIN' && job" type="button"
         class="mt-3 min-h-11 rounded-xl border border-rose-200 bg-white px-4 font-semibold"
-        @click="busy = true; poll(job.id, version)">查询原任务</button>
+        @click="busy = true; poll(job.id, version)">查看处理状态</button>
       <button v-else-if="retryable" type="button" class="mt-3 min-h-11 rounded-xl border border-rose-200 bg-white px-4 font-semibold"
         @click="job || errorCode === 'REQUEST_FAILED' ? transcribe() : loadSubtitles()">重试</button>
     </div>

@@ -26,27 +26,40 @@ def plans():
         return list(cur.fetchall())
 
 
-def period(now=None):
-    local = (now or store.utcnow().replace(tzinfo=timezone.utc)).astimezone(TZ)
-    start = local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    end = (start + timedelta(days=32)).replace(day=1)
-    return start.strftime('%Y-%m'), start, end
+def period(anchor, now=None):
+    """Monthly anniversaries of the original UTC-naive anchor, with Beijing month-end clamping.
+
+    Always calculate from the original date: Jan 31 -> Feb 28 -> Mar 31, not Mar 28.
+    Boundaries are [start, end), including the anchor's time of day and microseconds.
+    """
+    now = now if now is not None else store.utcnow()
+    local = now.replace(tzinfo=timezone.utc).astimezone(TZ)
+    origin = anchor.replace(tzinfo=timezone.utc).astimezone(TZ)
+    months = (local.year - origin.year) * 12 + local.month - origin.month
+    if months_after(anchor, months) > now:
+        months -= 1
+    months = max(0, months)
+    start, end = months_after(anchor, months), months_after(anchor, months + 1)
+    return start.isoformat(timespec='microseconds'), start, end
 
 
 def _lock_user(cur, user_id):
-    cur.execute('SELECT id FROM users WHERE id=%s FOR UPDATE', (user_id,))
-    if not cur.fetchone():
+    cur.execute('SELECT id,created_at FROM users WHERE id=%s FOR UPDATE', (user_id,))
+    user = cur.fetchone()
+    if not user:
         raise AccountError('AUTH_REQUIRED', '请先登录', 401)
+    return user
 
 
-def _entitlement(cur, user_id):
-    now = store.utcnow()
+def _entitlement(cur, user_id, now=None):
+    now = now if now is not None else store.utcnow()
     cur.execute('SELECT * FROM user_memberships WHERE user_id=%s AND starts_at<=%s AND expires_at>%s',
                 (user_id, now, now))
     paid = cur.fetchone()
     if paid:
         return dict(code=paid['plan_code'], name=paid['plan_name'], monthly_seconds=paid['monthly_seconds'],
-                    price_cents=paid['price_cents'], revision=paid['revision'], expires_at=paid['expires_at'])
+                    price_cents=paid['price_cents'], revision=paid['revision'],
+                    starts_at=paid['starts_at'], expires_at=paid['expires_at'])
     cur.execute("SELECT * FROM membership_plans WHERE code='free'")
     free = cur.fetchone()
     if not free:
@@ -54,25 +67,33 @@ def _entitlement(cur, user_id):
     return {**free, 'expires_at': None}
 
 
-def _quota(cur, user_id, entitlement):
-    month, start, end = period()
+def _quota(cur, user, entitlement, now):
+    paid = entitlement['code'] != 'free'
+    anchor = entitlement['starts_at'] if paid else user['created_at']
+    key, start, end = period(anchor, now)
+    # Free and Pro periods never share usage, even when their starting timestamps coincide.
+    key = ('pro:' if paid else 'free:') + key
+    if paid:
+        end = min(end, entitlement['expires_at'])
+    user_id = user['id']
     cur.execute('INSERT IGNORE INTO user_quota_periods (user_id,period,plan_code,limit_seconds) VALUES (%s,%s,%s,%s)',
-                (user_id, month, entitlement['code'], entitlement['monthly_seconds']))
-    cur.execute('SELECT * FROM user_quota_periods WHERE user_id=%s AND period=%s FOR UPDATE', (user_id, month))
+                (user_id, key, entitlement['code'], entitlement['monthly_seconds']))
+    cur.execute('SELECT * FROM user_quota_periods WHERE user_id=%s AND period=%s FOR UPDATE', (user_id, key))
     quota = cur.fetchone()
     if quota['plan_code'] != entitlement['code']:
         cur.execute('UPDATE user_quota_periods SET plan_code=%s,limit_seconds=%s WHERE user_id=%s AND period=%s',
-                    (entitlement['code'], entitlement['monthly_seconds'], user_id, month))
+                    (entitlement['code'], entitlement['monthly_seconds'], user_id, key))
         quota.update(plan_code=entitlement['code'], limit_seconds=entitlement['monthly_seconds'])
     return quota, start, end
 
 
 def summary(user_id):
     with store._cursor() as cur:
-        _lock_user(cur, user_id)
-        ent = _entitlement(cur, user_id)
-        quota, start, end = _quota(cur, user_id, ent)
-        # Outstanding older holds still reduce what is safe to submit this month.
+        user = _lock_user(cur, user_id)
+        now = store.utcnow()
+        ent = _entitlement(cur, user_id, now)
+        quota, start, end = _quota(cur, user, ent, now)
+        # Outstanding older holds still reduce what is safe to submit in this cycle.
         cur.execute("SELECT COALESCE(SUM(seconds),0) AS held FROM quota_reservations "
                     "WHERE user_id=%s AND period<>%s AND state IN ('reserved','unknown')", (user_id, quota['period']))
         held = int(cur.fetchone()['held'])
@@ -80,7 +101,9 @@ def summary(user_id):
                 limit_seconds=quota['limit_seconds'], used_seconds=quota['used_seconds'],
                 reserved_seconds=quota['reserved_seconds'], pending_previous_seconds=held,
                 available_seconds=max(0, quota['limit_seconds'] - quota['used_seconds'] - quota['reserved_seconds'] - held),
-                period_start=start.isoformat(), resets_at=end.isoformat(), payment_enabled=zpay.enabled())
+                period_start=iso(start), period_end=iso(end), resets_at=iso(end),
+                reset_basis='registration' if ent['code'] == 'free' else 'membership',
+                ends_with_membership=ent['expires_at'] == end, payment_enabled=zpay.enabled())
 
 
 def iso(value):
@@ -92,7 +115,7 @@ def reserve(user_id, job_id, duration, fingerprint):
         raise TranscriptionError('INVALID_AUDIO', '无法确定识别时长')
     seconds = math.ceil(duration)
     with store._cursor() as cur:
-        _lock_user(cur, user_id)
+        user = _lock_user(cur, user_id)
         cur.execute('SELECT * FROM quota_reservations WHERE job_id=%s', (job_id,))
         existing = cur.fetchone()
         if existing:
@@ -103,14 +126,14 @@ def reserve(user_id, job_id, duration, fingerprint):
                     (user_id, fingerprint))
         if cur.fetchone():
             raise TranscriptionError('SUBMISSION_UNCERTAIN', '相同视频存在执行中或待核对的任务，请查询原任务')
-        ent = _entitlement(cur, user_id)
-        quota, _, _ = _quota(cur, user_id, ent)
+        now = store.utcnow()
+        ent = _entitlement(cur, user_id, now)
+        quota, _, _ = _quota(cur, user, ent, now)
         cur.execute("SELECT COALESCE(SUM(seconds),0) AS held FROM quota_reservations "
                     "WHERE user_id=%s AND period<>%s AND state IN ('reserved','unknown')", (user_id, quota['period']))
         held = int(cur.fetchone()['held'])
         if seconds + quota['used_seconds'] + quota['reserved_seconds'] + held > quota['limit_seconds']:
-            raise TranscriptionError('QUOTA_EXCEEDED', '本月语音识别剩余时长不足，请查看个人中心的会员额度', status=403)
-        now = store.utcnow()
+            raise TranscriptionError('QUOTA_EXCEEDED', '本期语音识别剩余时长不足，请查看个人中心的会员额度', status=403)
         cur.execute('INSERT INTO quota_reservations (job_id,user_id,period,seconds,state,fingerprint,updated_at) VALUES (%s,%s,%s,%s,%s,%s,%s)',
                     (job_id, user_id, quota['period'], seconds, 'reserved', fingerprint, now))
         cur.execute('UPDATE user_quota_periods SET reserved_seconds=reserved_seconds+%s WHERE user_id=%s AND period=%s',
@@ -312,15 +335,31 @@ def months_after(start, months):
     return end.astimezone(timezone.utc).replace(tzinfo=None)
 
 
+def renewal_expiry(starts_at, expires_at, months):
+    """Keep month-end renewals on their original anniversary when expiry is a cycle boundary."""
+    _, boundary, _ = period(starts_at, expires_at)
+    if boundary == expires_at:
+        origin = starts_at.replace(tzinfo=timezone.utc).astimezone(TZ)
+        expiry = expires_at.replace(tzinfo=timezone.utc).astimezone(TZ)
+        elapsed = (expiry.year - origin.year) * 12 + expiry.month - origin.month
+        return months_after(starts_at, elapsed + months)
+    # Upgrades can carry an extra remainder; preserve that existing expiry calculation.
+    return months_after(expires_at, months)
+
+
 def apply_membership(cur, uid, plan, starts_at, expires_at):
     """Write the entitlement snapshot; caller holds the user row lock.
 
-    The paid plan replaces this month's limit; it does not erase usage or add free quota twice."""
+    A new membership starts a full Pro cycle. Renewal/upgrade retain the existing anchor
+    and current Pro usage; free allowance is never added to the paid limit.
+    """
     code = plan.get('code') or plan['plan_code']
     name = plan.get('name') or plan['plan_name']
     cur.execute('REPLACE INTO user_memberships VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
                 (uid, code, name, plan['price_cents'], plan['monthly_seconds'], plan['revision'], starts_at, expires_at))
-    quota, _, _ = _quota(cur, uid, dict(code=code, monthly_seconds=plan['monthly_seconds']))
+    quota, _, _ = _quota(cur, _lock_user(cur, uid),
+                         dict(code=code, monthly_seconds=plan['monthly_seconds'],
+                              starts_at=starts_at, expires_at=expires_at), store.utcnow())
     cur.execute('UPDATE user_quota_periods SET limit_seconds=%s,plan_code=%s WHERE user_id=%s AND period=%s',
                 (plan['monthly_seconds'], code, uid, quota['period']))
 
