@@ -59,6 +59,10 @@ def init_schema():
             body = "\n".join(line for line in sql.splitlines() if not line.lstrip().startswith("--")).strip()
             if body.upper().startswith("CREATE TABLE"):
                 cur.execute(body)
+        for column, definition in [('active_requests', 'INT UNSIGNED NOT NULL DEFAULT 0'), ('succeeded', 'TINYINT UNSIGNED NOT NULL DEFAULT 1')]:
+            cur.execute(f"SHOW COLUMNS FROM ai_usage_videos LIKE '{column}'")
+            if not cur.fetchone():
+                cur.execute(f'ALTER TABLE ai_usage_videos ADD COLUMN {column} {definition}')
         # Widen only; old quota rows and pending reservations remain available for settlement.
         for table in ('user_quota_periods', 'quota_reservations'):
             cur.execute(f"SHOW COLUMNS FROM {table} LIKE 'period'")

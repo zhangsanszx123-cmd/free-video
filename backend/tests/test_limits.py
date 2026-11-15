@@ -55,6 +55,54 @@ def test_default_plan_limits_and_summary_fields(client):
             data['batch_max_links'], data['asr_max_minutes']) == (10, 0, 1, 0, 3, 8)
 
 
+def test_video_identity_preserves_content_and_ignores_tracking():
+    key = usage.video_key
+    assert key('https://www.youtube.com/watch?v=abcdefghijk') == key('https://youtu.be/abcdefghijk?si=share')
+    assert key('https://www.youtube.com/watch?v=abcdefghijk') == key('https://www.youtube.com/shorts/abcdefghijk?utm_source=x')
+    url = VIDEO.format(1)
+    assert key(url) == key(url + '?spm_id_from=share')
+    assert key(url) != key(url + '?p=2')
+    assert key(url) != key(VIDEO.format(2))
+
+
+@pytest.mark.parametrize('success_first', [True, False])
+def test_concurrent_video_success_survives_other_failure(client, success_first):
+    user = uid(client)
+    a = usage.ai_begin(user, VIDEO.format(1))
+    b = usage.ai_begin(user, VIDEO.format(1))
+    if success_first:
+        usage.ai_commit(b)
+        usage.ai_release(a)
+    else:
+        usage.ai_release(a)
+        assert used(user) == 1
+        usage.ai_commit(b)
+    assert used(user) == 1
+    usage.ai_release(a)
+    assert used(user) == 1
+
+
+def test_all_concurrent_failures_release_one_video(client):
+    user = uid(client)
+    a = usage.ai_begin(user, VIDEO.format(1))
+    b = usage.ai_begin(user, VIDEO.format(1))
+    usage.ai_release(a)
+    assert used(user) == 1
+    usage.ai_release(b)
+    assert used(user) == 0
+
+
+def test_existing_ai_usage_schema_migration_preserves_counts(client):
+    user = uid(client)
+    usage.ai_commit(usage.ai_begin(user, VIDEO.format(1)))
+    query('ALTER TABLE ai_usage_videos DROP COLUMN active_requests, DROP COLUMN succeeded')
+    REAL_INIT_SCHEMA()
+    row = query('SELECT active_requests,succeeded FROM ai_usage_videos WHERE user_id=%s', (user,))[0]
+    assert row == {'active_requests': 0, 'succeeded': 1}
+    usage.ai_release(usage.ai_begin(user, VIDEO.format(1)))
+    assert used(user) == 1
+
+
 def test_existing_plan_table_is_migrated_with_defaults(client):
     for column in membership.LIMIT_COLUMNS:
         query(f'ALTER TABLE membership_plans DROP COLUMN {column}')

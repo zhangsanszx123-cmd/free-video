@@ -221,7 +221,9 @@ def learn_summary(req: LearnSummaryReq, request: Request) -> Iterable[ServerSent
         log.exception("learn_summary failed")
         yield ServerSentEvent(event="error", data=f"AI 总结生成失败：{e}"[:200])
     finally:
-        if not keep:
+        if keep:
+            usage.ai_commit(ticket)
+        else:
             usage.ai_release(ticket)
 
 
@@ -265,7 +267,9 @@ def learn_mindmap(req: LearnMindmapReq, request: Request):
         log.exception("learn_mindmap failed")
         raise HTTPException(status_code=500, detail="思维导图生成失败，请稍后重试") from e
     finally:
-        if not keep:
+        if keep:
+            usage.ai_commit(ticket)
+        else:
             usage.ai_release(ticket)
 
 
@@ -307,6 +311,8 @@ def learn_chat(req: LearnChatReq, request: Request) -> Iterable[ServerSentEvent]
         log.exception("learn_chat failed")
         yield ServerSentEvent(event="error", data=f"AI 追问失败：{e}"[:200])
     finally:
-        if not keep:
+        if keep:
+            usage.ai_commit(ticket)
+        else:
             usage.ai_release(ticket)
             usage.chat_release(chat_token)

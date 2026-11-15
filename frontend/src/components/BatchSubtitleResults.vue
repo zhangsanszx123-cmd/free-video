@@ -98,9 +98,8 @@ async function downloadZip() {
   } catch (e) { if (!disposed) notify(e.message) }
   finally { exporting.value = false }
 }
-onMounted(async () => {
-  await account.ensure()
-  if (disposed || !account.loggedIn) return
+function restore() {
+  if (disposed || !account.loggedIn || job.value || submitting.value) return
   let id
   try { id = localStorage.getItem(storageKey) } catch { /* ignore */ }
   if (id && /^[a-f0-9]{32}$/.test(id)) {
@@ -108,7 +107,9 @@ onMounted(async () => {
     job.value = { id, status: 'running', total: 0, completed: 0, items: [] }
     poll(id)
   }
-})
+}
+watch(() => account.loggedIn, (loggedIn) => { if (loggedIn) restore() })
+onMounted(async () => { await account.ensure(); restore() })
 onUnmounted(() => { disposed = true; controller.abort(); clearTimeout(timer); clearTimeout(toastTimer) })
 defineExpose({ start, busy })
 </script>

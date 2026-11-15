@@ -53,6 +53,10 @@ let mindmapAbort = null
 let chatAbort = null
 let asrPollTimer = null
 let toastTimer = null
+let asrAbort = null
+const uncertainJob = ref('')
+let asrNextAction = 'summary'
+let asrQuestion = ''
 
 const MODES = [
   { id: 'general', label: '通用精读', desc: '主旨 · 要点 · 章节时间轴 · 术语' },
@@ -96,6 +100,8 @@ function notify(msg, type = 'success') {
 }
 
 function abortAll() {
+  asrAbort?.abort()
+  asrAbort = null
   summaryAbort?.abort()
   mindmapAbort?.abort()
   chatAbort?.abort()
@@ -123,6 +129,7 @@ function resetState() {
   chatInput.value = ''
   chatError.value = ''
   needAsr.value = null
+  uncertainJob.value = ''
   asrMessage.value = ''
   localTranscript.value = ''
   localTranscriptionId.value = ''
@@ -339,6 +346,7 @@ async function sendChat(prefill = '') {
         messages: historyPayload.slice(-20),
       },
       (event, data) => {
+        if (chatAbort !== ctrl || ctrl.signal.aborted) return
         if (event === 'delta') {
           chatMessages.value[replyIdx].content += String(data || '')
           scrollBottom()
@@ -365,12 +373,27 @@ async function sendChat(prefill = '') {
   }
 }
 
+function clearChat() {
+  chatAbort?.abort()
+  chatAbort = null
+  chatLoading.value = false
+  chatMessages.value = []
+  chatError.value = ''
+}
+
 async function confirmAndTranscribe() {
   if (!props.info?.url || asrBusy.value) return
-  const pendingAction = needAsr.value?.nextAction || 'summary'
-  const pendingQ = needAsr.value?.pendingQuestion || ''
+  if (!uncertainJob.value) {
+    asrNextAction = needAsr.value?.nextAction || 'summary'
+    asrQuestion = needAsr.value?.pendingQuestion || ''
+  }
+  const pendingAction = asrNextAction
+  const pendingQ = asrQuestion
   needAsr.value = null
   asrBusy.value = true
+  const ctrl = new AbortController()
+  asrAbort = ctrl
+  const valid = () => asrAbort === ctrl && !ctrl.signal.aborted
   asrMessage.value = '正在建立转写会话并检查音轨…'
   summaryError.value = ''
   mindmapError.value = ''
@@ -378,9 +401,11 @@ async function confirmAndTranscribe() {
 
   const pollOnce = async (jobId) => {
     try {
-      const state = await api.transcription(jobId)
+      const state = await api.transcription(jobId, ctrl.signal)
+      if (!valid()) return
       asrMessage.value = state.message || '语音识别处理中…'
       if (state.status === 'done' && state.result) {
+        uncertainJob.value = ''
         asrBusy.value = false
         asrMessage.value = ''
         localTranscript.value = state.result.timed_text || state.result.text || ''
@@ -394,11 +419,13 @@ async function confirmAndTranscribe() {
       }
       if (state.status === 'error') {
         asrBusy.value = false
-        summaryError.value = state.error || '语音转文字失败'
+        uncertainJob.value = state.error_code === 'SUBMISSION_UNCERTAIN' ? jobId : ''
+        summaryError.value = uncertainJob.value ? '暂时无法取得识别结果。本次时长暂时冻结，尚未结算，请稍后查看处理状态或联系管理员，请勿重复提交。' : state.error || '语音转文字失败'
         return
       }
       asrPollTimer = setTimeout(() => pollOnce(jobId), 1500)
     } catch (e) {
+      if (!valid() || e.name === 'AbortError') return
       if (e.status === 404 || e.status === 403) {
         asrBusy.value = false
         summaryError.value = e.message || '转写任务已过期'
@@ -411,9 +438,13 @@ async function confirmAndTranscribe() {
 
   try {
     await api.transcriptionSession()
-    const created = await api.transcribe({ url: props.info.url, allow_asr: true })
+    if (!valid()) return
+    if (uncertainJob.value) { await pollOnce(uncertainJob.value); return }
+    const created = await api.transcribe({ url: props.info.url, allow_asr: true }, ctrl.signal)
+    if (!valid()) return
     await pollOnce(created.id)
   } catch (e) {
+    if (!valid() || e.name === 'AbortError') return
     asrBusy.value = false
     summaryError.value = e.message || '发起语音转文字失败'
   }
@@ -510,7 +541,7 @@ function exportNotes(ext = 'md') {
     <!-- AI Disabled Warning -->
     <div v-if="!aiEnabled" class="mt-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
       <LearnIcon name="alert" :size="16" class="mt-0.5 shrink-0" />
-      <span>AI 功能未启用：请在 <code class="rounded bg-amber-100 px-1">backend/.env</code> 中配置 <code class="rounded bg-amber-100 px-1">DEEPSEEK_API_KEY</code>。</span>
+      <span>AI 服务暂未启用，请稍后重试或联系管理员。</span>
     </div>
 
     <!-- Sub-Navigation Tabs + Export Actions -->
@@ -563,13 +594,14 @@ function exportNotes(ext = 'md') {
             </button>
           </div>
           <p v-if="needAsr.asr_enabled === false" class="mt-2 text-xs text-rose-600">
-            当前服务器尚未配置语音识别密钥（DASHSCOPE_API_KEY），请联系管理员启用。
+            语音识别服务暂未启用，请稍后重试或联系管理员。
           </p>
         </div>
       </div>
     </div>
 
     <!-- ASR Running Progress -->
+    <button v-if="uncertainJob && !asrBusy" type="button" class="btn-ghost mt-4 min-h-11 px-4" @click="confirmAndTranscribe">查看处理状态</button>
     <div v-if="asrBusy" class="mt-4 flex items-center gap-3 rounded-2xl border border-indigo-100 bg-indigo-50/80 p-4 text-sm text-indigo-800">
       <LearnIcon name="loader" :size="18" class=" shrink-0 animate-spin" />
       <div>
@@ -668,7 +700,7 @@ function exportNotes(ext = 'md') {
         <div class="mb-1.5 flex items-center justify-between text-xs text-slate-500">
           <span>快捷追问（点击直接提问）：</span>
           <button v-if="chatMessages.length" type="button" class="inline-flex items-center gap-1 text-slate-400 hover:text-rose-600"
-            @click="chatMessages = []; chatError = ''">
+            @click="clearChat">
             <LearnIcon name="trash" :size="12" /> 清空对话
           </button>
         </div>

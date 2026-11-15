@@ -60,6 +60,8 @@ CREATE TABLE IF NOT EXISTS ai_usage_videos (
   user_id BIGINT UNSIGNED NOT NULL,
   period VARCHAR(40) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   video_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  active_requests INT UNSIGNED NOT NULL DEFAULT 0,
+  succeeded TINYINT UNSIGNED NOT NULL DEFAULT 1,
   created_at DATETIME(6) NOT NULL,
   PRIMARY KEY (user_id, period, video_key),
   CONSTRAINT fk_ai_usage_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE

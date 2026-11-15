@@ -1,5 +1,5 @@
 <script setup>
-import { onUnmounted, ref, watch } from 'vue'
+import { nextTick, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import Icon from './Icon.vue'
 import LoginForm from './LoginForm.vue'
@@ -10,6 +10,27 @@ const router = useRouter()
 const dialog = ref(null)
 const tabs = [['login', '登录'], ['register', '注册']]
 let previousOverflow = ''
+let backdropPressed = false
+
+function outsideDialog(event) {
+  const bounds = dialog.value?.getBoundingClientRect()
+  return bounds && (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom)
+}
+
+function onPointerDown(event) {
+  backdropPressed = event.target === dialog.value && outsideDialog(event)
+}
+
+function onDialogClick(event) {
+  const dismiss = backdropPressed && event.target === dialog.value && outsideDialog(event)
+  backdropPressed = false
+  if (dismiss) closeAuth()
+}
+
+function onDialogClose() {
+  // Native close events are queued; an earlier close must not dismiss a newly opened dialog.
+  if (!dialog.value?.open) closeAuth()
+}
 
 function trapFocus(event) {
   if (event.key !== 'Tab') return
@@ -26,7 +47,10 @@ function trapFocus(event) {
   }
 }
 
-watch(() => authModal.open, (open) => {
+watch(() => authModal.open, async (open) => {
+  await nextTick()
+  if (authModal.open !== open) return
+  backdropPressed = false
   if (open) {
     previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
@@ -54,7 +78,8 @@ function onSuccess() {
 <template>
   <dialog ref="dialog" aria-labelledby="auth-title"
     class="upgrade-dialog m-auto w-[calc(100%-2rem)] max-w-[420px] rounded-3xl bg-white p-0 shadow-2xl"
-    @keydown="trapFocus" @close="closeAuth" @cancel.prevent="closeAuth" @click.self="closeAuth">
+    @keydown="trapFocus" @close="onDialogClose" @cancel.prevent="closeAuth"
+    @pointerdown="onPointerDown" @click="onDialogClick">
     <div v-if="authModal.open" class="p-6 sm:p-7">
       <div class="flex items-start justify-between gap-3">
         <div class="flex items-center gap-2.5">

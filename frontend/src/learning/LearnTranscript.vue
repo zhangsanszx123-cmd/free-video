@@ -122,7 +122,10 @@ async function startManualTranscribe() {
 
   try {
     await api.transcriptionSession()
+    if (abortCtrl !== ctrl) return
+    if (job.value?.error_code === 'SUBMISSION_UNCERTAIN') { await poll(job.value.id); return }
     const created = await api.transcribe({ url: props.info.url, lang: language.value || null, allow_asr: true }, ctrl.signal)
+    if (abortCtrl !== ctrl) return
     job.value = created
     await poll(created.id)
   } catch (e) {
@@ -221,7 +224,8 @@ onUnmounted(stopPending)
 
     <!-- Error / No Subtitles Notice -->
     <div v-if="error && !busy && !result" class="mt-3 rounded-xl bg-slate-50 p-3.5 text-xs leading-5 text-slate-600">
-      <p>{{ error }}</p>
+      <template v-if="errorCode === 'SUBMISSION_UNCERTAIN'"><p>暂时无法取得识别结果。本次时长暂时冻结，尚未结算，请稍后查看状态或联系管理员，请勿重复提交。</p><button type="button" class="btn-ghost mt-2 min-h-11 px-3" @click="startManualTranscribe">查看处理状态</button></template>
+      <p v-else>{{ error }}</p>
       <button v-if="canManualAsr" type="button" :disabled="asrEnabled === false"
         class="btn-primary mt-2.5 inline-flex h-9 items-center gap-1.5 rounded-xl px-3.5 text-xs font-semibold"
         @click="startManualTranscribe">

@@ -116,7 +116,7 @@ async function copy() {
 
       <div v-if="!aiEnabled" class="mt-6 flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
         <Icon name="alert" :size="18" class="mt-0.5 shrink-0" />
-        AI 功能未启用：管理员需在 <code class="rounded bg-amber-100 px-1">backend/.env</code> 中配置 <code class="rounded bg-amber-100 px-1">DEEPSEEK_API_KEY</code> 后重启服务。
+        AI 服务暂未启用，请稍后重试或联系管理员。
       </div>
 
       <div class="input-shell mt-6 rounded-[1.75rem] p-4 sm:p-6">

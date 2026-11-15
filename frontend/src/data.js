@@ -15,7 +15,7 @@ export const platforms = [
 ]
 
 export const platformTable = [
-  { name: '抖音', video: '原画 · 无水印', audio: true, sub: false, note: '支持分享口令 / v.douyin.com 短链；暂不支持图文' },
+  { name: '抖音', video: '原画（以视频源为准）', audio: true, sub: false, note: '支持分享口令 / v.douyin.com 短链；暂不支持图文' },
   { name: 'B站', video: '最高 1080P', audio: true, sub: true, note: '支持 b23.tv 短链' },
   { name: 'YouTube', video: '4K 及以上（以视频源为准）', audio: true, sub: true, note: '服务器需可访问海外网络' },
   { name: 'TikTok', video: '原画', audio: true, sub: false, note: '' },
@@ -29,7 +29,7 @@ export const features = [
   { icon: 'globe', title: '1800+ 平台通吃', desc: '基于 GitHub 15 万 Star 的 yt-dlp，国内外主流视频站、社交平台、播客一个网址全搞定。' },
   { icon: 'crown', title: '4K+ 原画质', desc: '自动挑选平台提供的最高码率音视频流并无损合并为 MP4，不做二次压缩；实际画质以视频源为准。' },
   { icon: 'music', title: '一键提取 MP3', desc: '视频秒变 192kbps 高品质 MP3，课程、播客、BGM 随身听。' },
-  { icon: 'layers', title: '批量提取打包', desc: '登录后一次粘贴最多 20 条链接，自动去重、后台逐条处理，视频、音频或字幕打包成 ZIP 一次带走。' },
+  { icon: 'layers', title: '批量提取打包', desc: '登录后按套餐批量提取，当前上限见批量页；自动去重，视频、音频或字幕可打包成 ZIP 下载。' },
   { icon: 'sparkles', title: 'AI 视频总结', desc: '登录后使用：长视频快速读完，核心要点、时间轴大纲、思维导图与追问自动生成。' },
   { icon: 'translate', title: 'AI 双语字幕', desc: '登录后使用：外语字幕一键翻译为中外双语 SRT，学英语、看海外课程利器。' },
 ]

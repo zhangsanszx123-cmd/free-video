@@ -1,5 +1,20 @@
 # FreeVideo 方案设计文档
 
+## 2026-11-15 登录弹窗事件保护
+
+- `AuthModal.vue` 用 pointerdown 起点、click 终点与 getBoundingClientRect 判断真正的遮罩点击，替换仅依赖 click.self 的判定，避免内部点击被误认为遮罩。
+- 原生 close 事件仅在 dialog 当前已关闭时同步账号弹窗状态；状态 watcher 等待 nextTick 并复核最新状态再调用 showModal/close。
+- `task_recovery_ui.py` 补充桌面/390px 登录和注册输入、重定向事件、拖出边界、遮罩、排队关闭事件及登录失败/成功的验证。
+
+## 2026-11-15 异常任务恢复与 AI 计次
+
+- `Home.aiAllowed` 校验操作版本和卸载状态；`AiLearningPanel` 的 ASR 使用独立 AbortController、提交后及轮询后的有效性检查，离页中止查询且不继续创建识别；清空追问中止当前流并丢弃迟到事件。服务器已开始的任务继续执行。
+- `pollJob` 对网络与临时服务错误保留原任务状态并重试，对 401/403/404 停止；`streamSSE` 复用 `streamLearnSSE` 统一处理事件格式。
+- `AiLearningPanel` 与 `LearnTranscript` 对 SUBMISSION_UNCERTAIN 保留原 ID、说明冻结额度并查询状态；不重发识别。批量恢复监听登录状态，但不改变 `account.js` 的身份隔离清理规则。
+- `usage.video_key` 规范化 YouTube 的 watch/shorts/embed/live/youtu.be、B站 BV/av 与分 P、抖音 video/modal_id；其他 URL 排序参数并过滤常见追踪字段，不联网展开短链。
+- `ai_usage_videos` 新增 `active_requests` 和 `succeeded`。预占在用户行锁内增加活动计数；各 API 成功调用 `ai_commit`，失败调用 `ai_release`；只有无成功且无活动请求时删除计次。Ticket 本进程终结幂等。启动时按列增量迁移，旧行视作已成功保留；不清空既有账目，进程崩溃中的活动计次保守保留，不自动退回。
+- 新增 `task_recovery_ui.py` 覆盖离页、清空对话、身份隔离与同账号批次恢复、SSE 格式、轮询重连、未知识别状态查询；`test_limits.py` 增加视频标识与并发成功/失败交错测试。
+
 ## 2026-11-15 功能页登录检查与套餐同步
 
 - `Batch.vue` 监听账号 ID，登录后调用共享 `loadMembership()`；`start` 在提交前等待套餐查询，并检查组件存活、操作版本和账号 ID。查询失败停止提交并显示可重试错误。会员查询沿用共享 pending 去重。

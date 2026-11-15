@@ -16,6 +16,7 @@ const serviceState = ref('checking')
 let healthController
 let healthTimer
 let disposed = false
+let actionVersion = 0
 const error = ref('')
 const info = ref(null)
 const parsedUrl = ref('')
@@ -64,9 +65,11 @@ async function parse() {
 
 /** AI summary is login-only (backend returns 401 too): guests get the login dialog, then the action resumes. */
 async function aiAllowed(resume) {
+  const current = actionVersion
   await account.ensure()
-  if (account.loggedIn || disposed) return account.loggedIn
-  openAuth({ notice: '登录后即可使用 AI 视频总结', onSuccess: () => { if (!disposed) resume() } })
+  if (disposed || current !== actionVersion) return false
+  if (account.loggedIn) return true
+  openAuth({ notice: '登录后即可使用 AI 视频总结', onSuccess: () => { if (!disposed && current === actionVersion) resume() } })
   return false
 }
 
@@ -104,7 +107,7 @@ function clearInput() {
   parsedUrl.value = ''
   error.value = ''
 }
-watch(url, () => { cancelParse(); error.value = '' }, { flush: 'sync' })
+watch(url, () => { actionVersion++; cancelParse(); error.value = '' }, { flush: 'sync' })
 async function checkHealth() {
   healthController = new AbortController()
   const timeout = setTimeout(() => healthController.abort(), 5000)

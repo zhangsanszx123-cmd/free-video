@@ -287,7 +287,9 @@ def translate(req: TranslateReq, user: dict = Depends(require_user)):
 
     def run(job):
         try:
-            return inner(job)
+            result = inner(job)
+            usage.ai_commit(ticket)
+            return result
         except BaseException:
             usage.ai_release(ticket)
             raise
@@ -326,7 +328,9 @@ def summary(req: UrlReq, user: dict = Depends(require_user)):
             logging.exception("summary failed")
             yield _sse("error", f"AI 总结失败：{e}"[:200])
         finally:
-            if not produced:
+            if produced:
+                usage.ai_commit(ticket)
+            else:
                 usage.ai_release(ticket)
 
     return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

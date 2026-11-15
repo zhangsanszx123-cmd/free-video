@@ -29,6 +29,7 @@ let healthReady = Promise.resolve()
 let version = 0
 let controller
 let timer
+let disposed = false
 
 const text = computed(() => timestamps.value ? result.value?.timed_text : result.value?.text)
 const canTranscribe = computed(() => ['NO_SUBTITLES', 'EMPTY_SUBTITLES', 'ASR_REQUIRED'].includes(errorCode.value))
@@ -212,7 +213,7 @@ async function init(info) {
   }).catch(() => { if (props.info === info) asrEnabled.value = null })
   // Guests may only download; subtitle and speech-to-text features need an account.
   if (!account.loggedIn) await account.ensure()
-  if (props.info !== info) return
+  if (disposed || props.info !== info) return
   guestPrompt.value = !account.loggedIn
   if (guestPrompt.value) return
   if (info.subtitles?.length) await loadSubtitles()
@@ -227,7 +228,7 @@ watch(() => props.info, init, { immediate: true })
 watch(() => account.loggedIn, (loggedIn) => { if (loggedIn && guestPrompt.value) init(props.info) })
 
 loadMembership()
-onUnmounted(resetRequest)
+onUnmounted(() => { disposed = true; resetRequest() })
 </script>
 
 <template>

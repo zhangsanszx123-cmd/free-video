@@ -1,4 +1,5 @@
 import { account } from './account.js'
+import { streamLearnSSE } from './learning/learnApi.js'
 
 async function request(path, options = {}) {
   const res = await fetch(path, {
@@ -49,8 +50,11 @@ export function pollJob(id, onUpdate, interval = 800) {
       if (job.status === 'done' || job.status === 'error') return
     } catch (e) {
       if (stopped) return
-      onUpdate({ status: 'error', error: e.message })
-      return
+      if ([401, 403, 404].includes(e.status)) {
+        onUpdate({ status: 'error', error: e.message })
+        return
+      }
+      onUpdate({ message: '网络波动，正在恢复原任务查询…' })
     }
     setTimeout(tick, interval)
   }
@@ -87,33 +91,7 @@ export async function downloadArchive(href, filename, signal) {
 
 /** POST + Server-Sent Events reader (EventSource only supports GET). */
 export async function streamSSE(path, body, onEvent, signal) {
-  const res = await fetch(path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal,
-  })
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}))
-    if (data.code === 'AUTH_REQUIRED') account.markLoggedOut('expired')
-    throw new Error(data.detail || `请求失败（${res.status}）`)
-  }
-  const reader = res.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-  for (;;) {
-    const { value, done } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    let idx
-    while ((idx = buffer.indexOf('\n\n')) >= 0) {
-      const raw = buffer.slice(0, idx)
-      buffer = buffer.slice(idx + 2)
-      const event = raw.match(/^event: (.*)$/m)?.[1] || 'message'
-      const data = raw.match(/^data: (.*)$/m)?.[1]
-      onEvent(event, data ? JSON.parse(data) : null)
-    }
-  }
+  return streamLearnSSE(path, body, onEvent, signal)
 }
 
 export const fmt = {
