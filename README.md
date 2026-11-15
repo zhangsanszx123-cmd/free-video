@@ -4,6 +4,8 @@
 
 > 仅供个人学习研究。请尊重版权，勿下载、传播未经授权的内容；频繁下载可能触发平台风控。
 
+邮箱账号：注册使用邮箱、密码与算术图形验证码，点击图片刷新；登录只需邮箱密码。账号弹窗为「登录 / 注册 / 找回密码」。配置与验收：[邮箱验证](docs/email-verification-setup.md) ｜ [找回密码](docs/password-recovery-verification.md) ｜ [当前账号方案与接口](docs/email-auth-plan.md)。
+
 文档：[需求分析](docs/requirements.md) ｜ [方案设计](docs/design.md) ｜ [视频转文字配置与验收](docs/video-to-text-setup.md) ｜ [账号功能验收](docs/account-verification.md) ｜ [会员额度与本机管理](docs/membership-quota-plan.md) ｜ [会员与历史任务验收](docs/membership-verification.md) ｜ [ZPAY 支付配置与验收](docs/zpay-setup.md)
 
 ## 技术栈
@@ -55,6 +57,9 @@ cd ../backend
 | `MYSQL_TEST_DATABASE` | pytest 专用库（会清空表，必须与 `MYSQL_DATABASE` 不同），留空则跳过账号测试 |
 | `AUTH_SESSION_DAYS` | 登录有效期，默认 7 天 |
 | `AUTH_REGISTER_RATE_LIMIT` / `AUTH_LOGIN_RATE_LIMIT` | 每 IP 注册（10 分钟）/ 登录（1 分钟）次数上限，默认 5 / 10 |
+| `AUTH_EMAIL_VERIFICATION_REQUIRED` | 默认 false；true 时注册必须通过邮件链接确认，本机已启用；先配置 SMTP |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_SSL` | 邮件服务器、端口、SSL；163 常用 `smtp.163.com` / `465` / `true` |
+| `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM` | 发件账号、SMTP 授权码和发件地址；仅放后端 `.env`，禁止提交 |
 | `ZPAY_PID` / `ZPAY_KEY` | ZPAY 商户 ID 与密钥（密钥只放 .env）；都为空且未开模拟时定价页显示“在线支付暂未开放” |
 | `ZPAY_MOCK` | `true` 使用本机模拟收银台（不扣钱，生产 `SESSION_SECURE=true` 时自动禁用） |
 | `PUBLIC_BASE_URL` | 本站对外地址，拼接支付回调与返回页，须与浏览器访问地址一致，默认 `http://127.0.0.1:8000` |

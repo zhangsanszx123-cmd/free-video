@@ -3,12 +3,16 @@
 1. cd frontend && npm run build
 2. Start the backend on the test database with AI/ASR disabled and relaxed limits, e.g. (bash):
    cd backend && MYSQL_DATABASE=freevideo_test DEEPSEEK_API_KEY= DASHSCOPE_API_KEY= \
-     AUTH_REGISTER_RATE_LIMIT=100 AUTH_LOGIN_RATE_LIMIT=100 .venv/Scripts/python -m uvicorn app.main:app --port 8010
+     AUTH_EMAIL_VERIFICATION_REQUIRED=false AUTH_REGISTER_RATE_LIMIT=100 AUTH_LOGIN_RATE_LIMIT=100 .venv/Scripts/python -m uvicorn app.main:app --port 8010
 3. python -P frontend/tests/account_ui.py      (ACCOUNT_UI_BASE overrides http://127.0.0.1:8010)
 Screenshots go to .runtime/account-ui/. Each test registers a fresh random user. Video parsing is mocked.
 """
 import os
 import secrets
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from auth_helpers import captcha_payload, fill_captcha
 import unittest
 from pathlib import Path
 
@@ -22,7 +26,7 @@ INFO = dict(url='https://www.bilibili.com/video/BV1mAAmzqEfP', title='账号测�
 
 
 def new_username():
-    return 'e2e_' + secrets.token_hex(4)
+    return 'e2e_' + secrets.token_hex(4) + '@example.com'
 
 
 class AccountUI(unittest.TestCase):
@@ -59,22 +63,22 @@ class AccountUI(unittest.TestCase):
         return page.locator('dialog[aria-labelledby="auth-title"]')
 
     def api_register(self, page, username, nickname=None):
-        res = page.request.post(BASE + '/api/auth/register', data=dict(username=username, password=PASSWORD, nickname=nickname))
+        res = page.request.post(BASE + '/api/auth/register', data=dict(email=username, password=PASSWORD, nickname=nickname or username, **captcha_payload(page, BASE)))
         self.assertTrue(res.ok, res.text())
 
     def dialog_login(self, page, username, password=PASSWORD):
         d = self.dialog(page)
-        d.get_by_label('用户名').fill(username)
+        d.get_by_label('邮箱').fill(username)
         d.get_by_label('密码', exact=True).fill(password)
+        fill_captcha(d)
         d.get_by_role('button', name='登录', exact=True).click()
 
     def dialog_register(self, page, username, nickname='', password=PASSWORD, confirm=None):
         d = self.dialog(page)
-        d.get_by_label('用户名').fill(username)
-        d.get_by_label('昵称（可选）').fill(nickname)
+        d.get_by_label('邮箱').fill(username)
         d.get_by_label('密码', exact=True).fill(password)
-        d.get_by_label('确认密码').fill(password if confirm is None else confirm)
-        d.get_by_role('button', name='注册并登录').click()
+        fill_captcha(d)
+        d.get_by_role('button', name='注册账号').click()
 
     def me(self, page):
         return page.request.get(BASE + '/api/auth/me').json()['user']
@@ -92,20 +96,18 @@ class AccountUI(unittest.TestCase):
         page.get_by_role('textbox').fill(INFO['url'])
         page.get_by_role('button', name='开始批量下载（1 条）').click()
         expect(d).to_be_visible()
-        expect(d.get_by_role('status')).to_contain_text('登录后即可使用批量提取')
+        expect(d.get_by_role('status').filter(has_text='登录后即可使用批量提取')).to_be_visible()
         self.assertEqual(page.url, BASE + '/batch')
-        expect(d.get_by_label('用户名')).to_be_focused()
+        expect(d.get_by_label('邮箱')).to_be_focused()
         page.screenshot(path=SHOTS / 'dialog-login-desktop.png')
         d.get_by_role('tab', name='注册').click()
         username = new_username()
-        self.dialog_register(page, username, '端到端用户', confirm=PASSWORD + 'x')
-        expect(d.get_by_text('两次输入的密码不一致')).to_be_visible()
         page.screenshot(path=SHOTS / 'dialog-register-desktop.png')
-        d.get_by_label('确认密码').fill(PASSWORD)
-        d.get_by_role('button', name='注册并登录').click()
+        fill_captcha(d)
+        self.dialog_register(page, username)
         expect(d).to_be_hidden()
         self.assertEqual(page.url, BASE + '/batch')
-        expect(page.get_by_role('button', name='端到端用户')).to_be_visible()
+        expect(page.get_by_role('button', name=username.split('@')[0])).to_be_visible()
         expect(page.get_by_text('测试：登录后已继续提交')).to_be_visible()  # the click resumed after login
         page.reload()
         expect(page).to_have_url(BASE + '/batch')
@@ -120,7 +122,7 @@ class AccountUI(unittest.TestCase):
         guest.locator('nav').get_by_role('button', name='注册').click()
         expect(gd.get_by_role('tab', name='注册')).to_have_attribute('aria-selected', 'true')
         self.dialog_register(guest, username.upper())
-        expect(gd.get_by_text('该用户名已被注册')).to_be_visible()
+        expect(gd.get_by_text('该邮箱已被注册')).to_be_visible()
         gd.get_by_role('button', name='关闭登录窗口').click()
         expect(gd).to_be_hidden()
         self.assertEqual(guest.url, BASE + '/')
@@ -133,7 +135,7 @@ class AccountUI(unittest.TestCase):
         page.goto(BASE + '/')
         page.locator('nav').get_by_role('button', name='登录', exact=True).click()
         self.dialog_login(page, username, 'wrong password!')
-        expect(self.dialog(page).get_by_role('alert')).to_contain_text('用户名或密码错误')
+        expect(self.dialog(page).get_by_role('alert')).to_contain_text('邮箱或密码错误')
         self.dialog_login(page, username.upper())
         expect(self.dialog(page)).to_be_hidden()
         self.assertEqual(page.url, BASE + '/')
@@ -141,8 +143,9 @@ class AccountUI(unittest.TestCase):
         page.request.post(BASE + '/api/auth/logout', data={})
         # backup full pages still work; external redirect targets are rejected
         page.goto(BASE + '/login?redirect=//evil.example/steal')
-        page.locator('main').get_by_label('用户名').fill(username)
+        page.locator('main').get_by_label('邮箱').fill(username)
         page.locator('main').get_by_label('密码', exact=True).fill(PASSWORD)
+        fill_captcha(page.locator('main'))
         page.locator('main').get_by_role('button', name='登录', exact=True).click()
         page.wait_for_url(BASE + '/')
         page.goto(BASE + '/register')
@@ -160,7 +163,7 @@ class AccountUI(unittest.TestCase):
         ai_tab = page.get_by_role('tab', name='AI 视频总结')
         ai_tab.click()
         d = self.dialog(page)
-        expect(d.get_by_role('status')).to_contain_text('登录后即可使用 AI 视频总结')
+        expect(d.get_by_role('status').filter(has_text='登录后即可使用 AI 视频总结')).to_be_visible()
         expect(ai_tab).to_have_attribute('aria-selected', 'false')
         self.dialog_login(page, username)
         expect(d).to_be_hidden()
@@ -211,14 +214,14 @@ class AccountUI(unittest.TestCase):
         self.api_register(page, new_username())
         page.goto(BASE + '/account?section=profile')
         other = self.new_page()
-        other.request.post(BASE + '/api/auth/login', data=dict(username=self.me(page)['username'], password=PASSWORD))
+        other.request.post(BASE + '/api/auth/login', data=dict(email=self.me(page)['email'], password=PASSWORD, **captcha_payload(other, BASE)))
         other.request.post(BASE + '/api/account/sessions/revoke-others', data={})
         page.get_by_label('昵称').fill('过期前')
         page.get_by_role('button', name='保存昵称').click()
         page.wait_for_url(BASE + '/')
         d = self.dialog(page)
-        expect(d.get_by_role('status')).to_contain_text('登录已过期')
-        self.dialog_login(page, self.me(other)['username'])
+        expect(d.get_by_role('status').filter(has_text='登录已过期')).to_be_visible()
+        self.dialog_login(page, self.me(other)['email'])
         page.wait_for_url(BASE + '/account?section=profile')
 
     def test_account_sections_validation_and_sync(self):
@@ -252,10 +255,10 @@ class AccountUI(unittest.TestCase):
         page.get_by_role('button', name='注销账号', exact=True).click()
         expect(page.get_by_role('button', name='永久注销账号')).to_have_count(0)
         page.get_by_role('button', name='申请注销账号').click()
-        page.get_by_label('输入用户名以确认').fill(username)
+        page.get_by_label('输入邮箱以确认').fill(username)
         page.get_by_role('button', name='取消注销').click()
         page.get_by_role('button', name='申请注销账号').click()
-        expect(page.get_by_label('输入用户名以确认')).to_have_value('')
+        expect(page.get_by_label('输入邮箱以确认')).to_have_value('')
         page.screenshot(path=SHOTS / 'account-delete-desktop.png', full_page=True)
         for width in (360, 390, 768, 1440):
             page.set_viewport_size(dict(width=width, height=900))
@@ -294,9 +297,9 @@ class AccountUI(unittest.TestCase):
         page.get_by_role('button', name='修改密码', exact=True).click()
         page.wait_for_url(BASE + '/')
         d = self.dialog(page)
-        expect(d.get_by_role('status')).to_contain_text('密码已修改')
+        expect(d.get_by_role('status').filter(has_text='密码已修改')).to_be_visible()
         self.dialog_login(page, username)
-        expect(d.get_by_role('alert')).to_contain_text('用户名或密码错误')
+        expect(d.get_by_role('alert')).to_contain_text('邮箱或密码错误')
         self.dialog_login(page, username, 'Brand new 2026')
         expect(d).to_be_hidden()
         self.assertEqual(page.url, BASE + '/')
@@ -311,14 +314,14 @@ class AccountUI(unittest.TestCase):
         delete = page.get_by_role('button', name='永久注销账号')
         expect(delete).to_be_disabled()
         page.get_by_label('当前密码').nth(1).fill(PASSWORD)
-        page.get_by_label('输入用户名以确认').fill(username)
+        page.get_by_label('输入邮箱以确认').fill(username)
         delete.click()
         page.wait_for_url(BASE + '/')
         expect(page.get_by_role('status').filter(has_text='账号已注销')).to_be_visible()
         expect(self.dialog(page)).to_be_hidden()
         page.locator('nav').get_by_role('button', name='登录', exact=True).click()
         self.dialog_login(page, username)
-        expect(self.dialog(page).get_by_role('alert')).to_contain_text('用户名或密码错误')
+        expect(self.dialog(page).get_by_role('alert')).to_contain_text('邮箱或密码错误')
 
     def test_mobile_dialog_and_navigation(self):
         page = self.new_page(390, 844)
@@ -332,15 +335,16 @@ class AccountUI(unittest.TestCase):
         self.assertLessEqual(box['x'] + box['width'], 390)
         self.assertGreaterEqual(box['x'], 0)
         page.screenshot(path=SHOTS / 'dialog-register-mobile.png')
-        self.dialog_register(page, new_username(), '手机用户')
+        email = new_username()
+        self.dialog_register(page, email)
         expect(d).to_be_hidden()
         page.get_by_role('button', name='打开导航菜单').click()
-        expect(menu.get_by_text('手机用户')).to_be_visible()
+        expect(menu.get_by_text(email.split('@')[0], exact=True)).to_be_visible()
         page.wait_for_timeout(300)  # 200ms enter transition
         page.screenshot(path=SHOTS / 'mobile-menu-user.png')
         menu.get_by_role('link', name='个人中心').click()
         page.wait_for_url(BASE + '/account')
-        expect(page.get_by_role('heading', level=1)).to_have_text('手机用户')
+        expect(page.get_by_role('heading', level=1)).to_have_text(email.split('@')[0])
         expect(page.get_by_role('button', name='关闭升级提示')).to_have_count(0)
         self.assertTrue(page.evaluate('document.documentElement.scrollWidth <= innerWidth'))
         page.screenshot(path=SHOTS / 'account-mobile.png', full_page=True)

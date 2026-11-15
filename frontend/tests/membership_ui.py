@@ -6,6 +6,10 @@ Seeds only freevideo_test through the existing repository. No media downloads, A
 import os
 from pathlib import Path
 import secrets
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from auth_helpers import captcha_payload, fill_captcha
 import subprocess
 import unittest
 
@@ -34,12 +38,12 @@ class MembershipUI(unittest.TestCase):
         self.page = self.context.new_page()
         self.errors = []
         self.page.on('pageerror', lambda e: self.errors.append(str(e)))
-        self.username = 'quota_ui_' + secrets.token_hex(4)
-        response = self.page.request.post(BASE + '/api/auth/register', data=dict(username=self.username, password=PASSWORD))
+        self.username = 'quota_ui_' + secrets.token_hex(4) + '@example.com'
+        response = self.page.request.post(BASE + '/api/auth/register', data=dict(email=self.username, nickname=self.username[:30], password=PASSWORD, **captcha_payload(self.page, BASE)))
         self.assertTrue(response.ok, response.text())
 
     def tearDown(self):
-        self.page.request.delete(BASE + '/api/account', data=dict(password=PASSWORD, confirm_username=self.username))
+        self.page.request.delete(BASE + '/api/account', data=dict(password=PASSWORD, confirm_email=self.username))
         self.context.close()
         self.assertEqual(self.errors, [])
 
@@ -50,7 +54,7 @@ from app import account_store, config, membership
 from app.transcriptions import Transcription
 assert config.MYSQL_DATABASE == 'freevideo_test'
 with account_store._cursor() as cur:
-    cur.execute('SELECT id FROM users WHERE username_key=%s', (sys.argv[1],))
+    cur.execute('SELECT id FROM users WHERE email=%s', (sys.argv[1],))
     uid = cur.fetchone()['id']
 if len(sys.argv) > 2:
     membership.grant(sys.argv[1], sys.argv[2])
@@ -173,8 +177,9 @@ for i, source in enumerate(['asr','platform_subtitle']):
         expect(dialog).to_be_visible()
         expect(dialog).to_contain_text('登录后即可提取字幕与视频文稿')
         self.assertEqual(submissions, [])
-        dialog.get_by_label('用户名').fill(self.username)
+        dialog.get_by_label('邮箱').fill(self.username)
         dialog.get_by_label('密码', exact=True).fill(PASSWORD)
+        fill_captcha(dialog)
         dialog.get_by_role('button', name='登录', exact=True).click()
         expect(dialog).to_be_hidden()
         expect(p.get_by_text('测试额度不足', exact=True)).to_be_visible()

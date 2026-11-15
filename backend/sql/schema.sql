@@ -10,14 +10,34 @@ CREATE TABLE IF NOT EXISTS users (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   username VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   username_key VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  email VARCHAR(254) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  email_verified TINYINT NOT NULL DEFAULT 1,
   nickname VARCHAR(30) NOT NULL,
   password_hash VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   created_at DATETIME(6) NOT NULL,
   updated_at DATETIME(6) NOT NULL,
   password_changed_at DATETIME(6) NOT NULL,
   PRIMARY KEY (id),
-  UNIQUE KEY uq_users_username_key (username_key)
+  UNIQUE KEY uq_users_username_key (username_key),
+  UNIQUE KEY uq_users_email (email)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS email_verifications (
+  user_id BIGINT UNSIGNED NOT NULL PRIMARY KEY,
+  token_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL UNIQUE,
+  created_at DATETIME(6) NOT NULL,
+  expires_at DATETIME(6) NOT NULL,
+  CONSTRAINT fk_email_verification_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS password_resets (
+  user_id BIGINT UNSIGNED NOT NULL PRIMARY KEY,
+  token_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL UNIQUE,
+  credential_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  created_at DATETIME(6) NOT NULL,
+  expires_at DATETIME(6) NOT NULL,
+  CONSTRAINT fk_password_reset_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS membership_plans (
   code VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,

@@ -118,7 +118,7 @@ def test_grant_config_snapshot_and_expiry(client, monkeypatch):
     assert membership.summary(user)['limit_seconds'] == 1800
     used = hold(user, 60)
     membership.finalize(user, used, 'settled')
-    membership.grant('alice', 'monthly')
+    membership.grant('alice@example.com', 'monthly')
     assert membership.summary(user)['available_seconds'] == 36000
     paid = hold(user, 120)
     membership.finalize(user, paid, 'settled')
@@ -126,11 +126,11 @@ def test_grant_config_snapshot_and_expiry(client, monkeypatch):
     assert membership.summary(user)['limit_seconds'] == 36000
     assert membership.summary(user)['used_seconds'] == 120
     with pytest.raises(ValueError, match='已有有效会员'):
-        membership.grant('alice', 'yearly')
+        membership.grant('alice@example.com', 'yearly')
     query('UPDATE user_memberships SET expires_at=%s WHERE user_id=%s', (account_store.utcnow() - timedelta(seconds=1), user))
     assert membership.summary(user)['limit_seconds'] == 1800
     assert membership.summary(user)['available_seconds'] == 1740
-    membership.grant('alice', 'yearly')
+    membership.grant('alice@example.com', 'yearly')
     assert membership.summary(user)['limit_seconds'] == 108000
     assert membership.summary(user)['used_seconds'] == 0
     assert membership.summary(user)['available_seconds'] == 108000
@@ -167,7 +167,7 @@ def test_pro_anniversary_ignores_registration_day_and_month_start(client, monkey
     monkeypatch.setattr(account_store, 'utcnow', lambda: opening)
     free = hold(user, 600)
     membership.finalize(user, free, 'settled')
-    membership.grant('alice', 'yearly')
+    membership.grant('alice@example.com', 'yearly')
     initial = membership.summary(user)
     assert initial['limit_seconds'] == initial['available_seconds'] == 108000
     assert initial['period_start'] == membership.iso(opening)
@@ -189,7 +189,7 @@ def test_membership_expiry_restores_registration_cycle_without_double_free_grant
     user = uid(client)
     query('UPDATE users SET created_at=%s WHERE id=%s', (datetime(2026, 10, 25, 2), user))
     monkeypatch.setattr(account_store, 'utcnow', lambda: datetime(2026, 11, 10, 3))
-    membership.grant('alice', 'monthly')
+    membership.grant('alice@example.com', 'monthly')
     # A membership can expire within a registration cycle in which free quota was already used.
     expiry = datetime(2026, 11, 20, 3)
     query('UPDATE user_memberships SET expires_at=%s WHERE user_id=%s', (expiry, user))
@@ -209,7 +209,7 @@ def test_old_free_hold_is_settled_in_its_original_cycle_after_pro_opening(client
     user = uid(client)
     pending = hold(user, 100)
     membership.finalize(user, pending, 'unknown')
-    membership.grant('alice', 'monthly')
+    membership.grant('alice@example.com', 'monthly')
     summary = membership.summary(user)
     assert summary['limit_seconds'] == 36000
     assert summary['pending_previous_seconds'] == 100

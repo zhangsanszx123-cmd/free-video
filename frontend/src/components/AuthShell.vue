@@ -5,7 +5,7 @@ defineProps({ title: { type: String, required: true }, subtitle: { type: String,
 const perks = [
   { icon: 'layers', text: '批量提取：最多 20 条链接，字幕/视频一键打包' },
   { icon: 'sparkles', text: 'AI 总结：结构化大纲、思维导图与视频追问' },
-  { icon: 'shield', text: '账号仅保存用户名与加密密码，不关联任何第三方平台账号' },
+  { icon: 'shield', text: '使用邮箱和加密密码保护账号，不关联第三方平台账号' },
 ]
 </script>
 

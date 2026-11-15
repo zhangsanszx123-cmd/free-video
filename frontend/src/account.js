@@ -40,8 +40,13 @@ export const accountApi = {
   orders: () => call('/api/pay/orders'),
   history: (params) => call(`/api/account/history?${new URLSearchParams(params)}`),
   hideHistory: (id) => call(`/api/account/history/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  captcha: () => call('/api/auth/captcha'),
   me: () => call('/api/auth/me'),
   register: (body) => call('/api/auth/register', { method: 'POST', body }),
+  resendVerification: (body) => call('/api/auth/resend-verification', { method: 'POST', body }),
+  verifyEmail: (token) => call('/api/auth/verify-email', { method: 'POST', body: { token } }),
+  forgotPassword: (email) => call('/api/auth/forgot-password', { method: 'POST', body: { email } }),
+  resetPassword: (token, password) => call('/api/auth/reset-password', { method: 'POST', body: { token, password } }),
   login: (body) => call('/api/auth/login', { method: 'POST', body }),
   logout: () => call('/api/auth/logout', { method: 'POST', body: {} }),
   updateProfile: (body) => call('/api/account/profile', { method: 'PATCH', body }),
@@ -54,12 +59,22 @@ export const accountApi = {
 
 /** Client-side mirrors of backend rules (account_auth.py); the server remains authoritative. */
 export const rules = {
+  email(v) {
+    const value = v.trim().toLowerCase()
+    const parts = value.split('@')
+    if (value.length > 254 || parts.length !== 2) return '请输入正确的邮箱地址'
+    const [local, domain] = parts
+    return local.length >= 1 && local.length <= 64 && /^[a-z0-9!#$%&'*+/=?^_`{|}~.-]+$/.test(local)
+      && !local.startsWith('.') && !local.endsWith('.') && !local.includes('..')
+      && domain.split('.').length >= 2 && domain.split('.').every(v => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(v))
+      && /^[a-z]{2,63}$/.test(domain.split('.').at(-1)) ? '' : '请输入正确的邮箱地址'
+  },
   username: (v) => (/^[A-Za-z0-9_]{4,32}$/.test(v) ? '' : '用户名需为 4–32 位字母、数字或下划线'),
   password(v, username = '') {
     const length = [...v].length // count code points like Python len()
     if (length < 8 || length > 128) return '密码长度需为 8–128 个字符'
     if (!v.trim()) return '密码不能全部为空白字符'
-    if (username && v.toLowerCase() === username.toLowerCase()) return '密码不能与用户名相同'
+    if (username && v.toLowerCase() === username.toLowerCase()) return '密码不能与登录邮箱相同'
     return ''
   },
   nickname(v) {
@@ -120,7 +135,16 @@ export const account = reactive({
   },
 
   async register(body) {
-    const { user, guest_claimed_seconds: claimed } = await accountApi.register(body)
+    const data = await accountApi.register(body)
+    if (data.verification_required) return data
+    const { user, guest_claimed_seconds: claimed } = data
+    setUser(user)
+    announceGuestUsage(claimed)
+    return user
+  },
+
+  async verifyEmail(token) {
+    const { user, guest_claimed_seconds: claimed } = await accountApi.verifyEmail(token)
     setUser(user)
     announceGuestUsage(claimed)
     return user
@@ -146,7 +170,7 @@ export const account = reactive({
 export const authModal = reactive({ open: false, tab: 'login', notice: '', redirect: '', onSuccess: null })
 
 /**
- * @param {{tab?: 'login'|'register', notice?: string, redirect?: string, onSuccess?: Function}} options
+ * @param {{tab?: 'login'|'register'|'forgot', notice?: string, redirect?: string, onSuccess?: Function}} options
  * After success the dialog runs onSuccess, otherwise navigates to the (same-site) redirect, otherwise stays.
  */
 export function openAuth({ tab = 'login', notice = '', redirect = '', onSuccess = null } = {}) {

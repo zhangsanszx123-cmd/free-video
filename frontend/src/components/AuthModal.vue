@@ -4,11 +4,12 @@ import { useRouter } from 'vue-router'
 import Icon from './Icon.vue'
 import LoginForm from './LoginForm.vue'
 import RegisterForm from './RegisterForm.vue'
+import ForgotPasswordForm from './ForgotPasswordForm.vue'
 import { account, authModal, closeAuth } from '../account.js'
 
 const router = useRouter()
 const dialog = ref(null)
-const tabs = [['login', '登录'], ['register', '注册']]
+const tabs = [['login', '登录'], ['register', '注册'], ['forgot', '找回密码']]
 let previousOverflow = ''
 let backdropPressed = false
 
@@ -80,15 +81,15 @@ function onSuccess() {
     class="upgrade-dialog m-auto w-[calc(100%-2rem)] max-w-[420px] rounded-3xl bg-white p-0 shadow-2xl"
     @keydown="trapFocus" @close="onDialogClose" @cancel.prevent="closeAuth"
     @pointerdown="onPointerDown" @click="onDialogClick">
-    <div v-if="authModal.open" class="p-6 sm:p-7">
+    <div v-if="authModal.open" class="p-5 sm:p-6">
       <div class="flex items-start justify-between gap-3">
         <div class="flex items-center gap-2.5">
           <img src="/logo.svg" alt="" class="h-9 w-9" />
           <div>
             <h2 id="auth-title" class="text-xl font-extrabold tracking-tight text-slate-950">
-              {{ authModal.tab === 'login' ? '欢迎回来' : '创建账号' }}
+              {{ authModal.tab === 'login' ? '欢迎回来' : authModal.tab === 'register' ? '创建账号' : '找回密码' }}
             </h2>
-            <p class="text-xs text-slate-500">{{ authModal.tab === 'login' ? '登录后可提取字幕、语音识别、批量提取与 AI 总结' : '仅需用户名和密码，注册后自动登录' }}</p>
+            <p class="text-xs text-slate-500">{{ authModal.tab === 'login' ? '登录后可提取字幕、语音识别、批量提取与 AI 总结' : authModal.tab === 'register' ? '使用邮箱和密码创建账号' : '通过注册邮箱接收密码重置链接' }}</p>
           </div>
         </div>
         <button type="button" class="-mr-2 -mt-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="关闭登录窗口" @click="closeAuth">
@@ -96,7 +97,7 @@ function onSuccess() {
         </button>
       </div>
 
-      <div role="tablist" aria-label="登录或注册" class="mt-5 grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1">
+      <div role="tablist" aria-label="账号操作" class="mt-4 grid grid-cols-3 gap-1 rounded-xl bg-slate-100 p-1">
         <button v-for="[key, label] in tabs" :key="key" type="button" role="tab" :aria-selected="authModal.tab === key"
           class="min-h-10 rounded-lg text-sm font-bold transition"
           :class="authModal.tab === key ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'"
@@ -107,8 +108,9 @@ function onSuccess() {
 
       <LoginForm v-if="authModal.tab === 'login'" key="login" :notice="authModal.notice" autofocus
         @success="onSuccess" @switch="authModal.tab = 'register'" />
-      <RegisterForm v-else key="register" :notice="authModal.notice" autofocus
+      <RegisterForm v-else-if="authModal.tab === 'register'" key="register" :notice="authModal.notice" autofocus
         @success="onSuccess" @switch="authModal.tab = 'login'" />
+      <ForgotPasswordForm v-else key="forgot" autofocus @login="authModal.tab = 'login'" />
     </div>
   </dialog>
 </template>

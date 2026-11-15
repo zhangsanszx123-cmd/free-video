@@ -1,5 +1,43 @@
 # FreeVideo 方案设计文档
 
+## 2026-11-15 找回密码
+
+- `ForgotPasswordForm.vue` 共用于账号弹窗第三选项卡与备用 `/forgot-password` 页面。登录表单在弹窗内仅切换 `authModal.tab='forgot'`，不重置 redirect/onSuccess；独立登录页可打开同一个找回弹窗。发信提示不关闭弹窗，返回登录仅切换选项卡。
+
+- `password_reset.py` 独立编排，复用 SMTP 发信器（主题和正文按找回用途切换），不改下载、会员与支付逻辑。表 `password_resets` 存 user_id、token_hash、credential_hash、created_at、expires_at；凭证绑定当前密码哈希，随账号级联删除。
+- `POST /api/auth/forgot-password {email}`：来源检查、IP 和邮箱限速；未知账号不发信，对外响应与已知账号/投递失败一致，避免直接枚举。持久化冷却 60 秒。明确发信失败使本次 token 过期，保留冷却，不自动重试。
+- `POST /api/auth/reset-password {token,password}`：先查所属用户，再按用户→token 顺序加锁，与发信一致；校验过期、凭证快照、密码规则，在单个事务中改密、删除全部会话、消费重置链接并清理注册验证链接。并发只成功一次。未验证账号同时激活并以当前时间作为免费周期锚点。
+- `PasswordRecovery.vue` 提供 `/forgot-password` 和 `/reset-password` 两个页面；token 只在 hash 传入，进入页面用 Router.replace 清除，只有显式提交新密码才消费，不自动登录。成功后 refresh 同步当前会话，App 对重置页保留实例以展示登出后的成功提示。
+
+## 2026-11-15 注册验证码与登录分离
+
+- `captcha._problem()` 用随机个位数生成加减题，只将算术表达式绘制进 PNG，服务端保存计算结果摘要。输入结果最多两位；图片是带「刷新图形验证码」可访问名称的按钮，支持点击及键盘刷新，刷新清空原答案。
+
+- `CaptchaField` 用关联标签 + 原生数字键盘输入框、固定宽度图片和刷新按钮组成单行；输入框 `min-w-0` 自适应，图片按比例缩放，错误信息在行下方。注册页和弹窗共用。
+
+- `RegisterReq` 仍要求 `captcha_id,captcha_answer`，注册调用一次性校验；`LoginReq` 仅有邮箱密码，登录和重发不读取验证码。不存在关闭注册验证码的配置开关。
+- `RegisterForm` 删除昵称、确认密码输入及校验；提交邮箱密码和验证码。待验证状态隐藏图形验证码，重发仅提交邮箱密码。默认昵称由后端从邮箱前缀生成，资料编辑接口不变。
+- `LoginForm` 移除验证码组件、取图请求及提交字段；保留登录失败次数限制和重发邮件入口。`AuthModal` 缩减内边距与分区间距。
+- 验证：后端 270 项通过，4 个网络测试排除；前端构建与三种窗口初始弹窗无滚动、登录不取验证码、注册等待验证的浏览器检查通过。保留验证码错误/过期/跨浏览器和注册不可绕过的测试。
+
+## 2026-11-15 一次性邮件验证链接
+
+- `email_verification.py` 使用 Python 标准库 SMTP_SSL（可选 STARTTLS）、15 秒超时、校验证书，统一中文错误，不记录授权码、链接或 SMTP 原始响应。QUIT 失败不推翻已确认接受的投递；不自动重发。
+- 表 `email_verifications`：用户主键、唯一 SHA256 token 摘要、发送创建时间、过期时间，随账号删除。随机 token 32 字节，30 分钟有效；发送在用户行锁内替换 token，并校验 60 秒冷却，数据库提交后发信。发送失败仅使本次 token 过期，保留冷却；待验证账号可用原密码重发。
+- 开启配置时注册调用 `create_user(..., session=None, verified=False)`，不签发 Cookie；发信前检查 SMTP 及可信 PUBLIC_BASE_URL（非本机要求 HTTPS，不采用请求 Host）。禁用配置时保留原自动登录流程。
+- `POST /api/auth/resend-verification {email,password,captcha_id,captcha_answer}`：来源、IP 限速、图形验证码、密码校验后重发；不修改密码。`POST /api/auth/verify-email {token}`：原子验证并删除 token、设置邮箱验证状态、更新注册时间和创建会话；并发只成功一次，成功后复用游客认领。
+- 链接 `/verify-email#token=...` 的凭证不进入 HTTP URL/访问日志；Vue 页面接收后用 Router.replace 清除 hash，处理同页重复打开，显式按钮 POST 避免邮件扫描自动激活。无凭证刷新需重新打开邮件链接。验证页没有历史任务状态，在 App 身份版本改变时保持该页实例，以呈现切换账号后的成功结果。
+- `account.register` 返回待验证结果时不更新登录状态，前端显示收件提示和重发入口；其他标签页验证完成后，现有 BroadcastChannel + me 同步按原规则继续操作。开发模式 :5178 与 localhost:8000 属于不同来源，验收统一使用 localhost:8000。
+
+## 2026-11-15 邮箱认证与图形验证码
+
+- `users` 增加 `email VARCHAR(254) ascii_bin` 唯一键与 `email_verified`（当前默认 1）；启动按列增量迁移，保留内部随机用户名。邮箱只做格式校验与小写规范化，不联网验证，唯一冲突返回 `EMAIL_TAKEN`。
+- 注册/登录请求改为 `email,password,captcha_id,captcha_answer`（注册另有可选 nickname）；不接受旧用户名认证。`public_user/me` 增加邮箱及验证状态；注销改为 `password,confirm_email`。本机会员 grant 支持邮箱查找。
+- `GET /api/auth/captcha` 返回 `{id,image: data:image/png;base64,...,expires_in:300}`，标准库生成 PNG，无新增依赖。进程内加锁保存浏览器 Cookie 摘要、答案摘要和过期时间；最多 2000 条活动挑战，过期清理，IP 每 10 分钟最多取 60 张。
+- 验证码 Cookie 为 HttpOnly、SameSite=Lax、Path=/api，Secure 跟随既有配置。校验时原子弹出挑战，一次消费；错误/过期/重放统一返回 `INVALID_CAPTCHA`，后续认证错误不恢复验证码。进程重启须重新取图，多 worker 需共享存储。
+- `CaptchaField.vue` 在共用表单提供图片、换一张、错误与加载反馈；刷新清空答案，卸载丢弃迟到响应。认证成功沿用 `account.js` 同步身份与游客认领。
+- 当前注册直接写入已验证状态；未验证状态登录返回 `EMAIL_NOT_VERIFIED`。邮件发送与验证链接尚未实现。
+
 ## 2026-11-15 登录弹窗事件保护
 
 - `AuthModal.vue` 用 pointerdown 起点、click 终点与 getBoundingClientRect 判断真正的遮罩点击，替换仅依赖 click.self 的判定，避免内部点击被误认为遮罩。

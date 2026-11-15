@@ -10,6 +10,9 @@ const titles = {
   pricing: '会员定价 - FreeVideo Pro',
   login: '登录 - FreeVideo',
   register: '注册账号 - FreeVideo',
+  verifyEmail: '验证邮箱 - FreeVideo',
+  forgotPassword: '找回密码 - FreeVideo',
+  resetPassword: '设置新密码 - FreeVideo',
   account: '个人中心 - FreeVideo',
   history: '任务记录 - FreeVideo',
   payResult: '支付结果 - FreeVideo',
@@ -27,12 +30,15 @@ const router = createRouter({
     { path: '/pricing', name: 'pricing', component: () => import('./pages/Pricing.vue') },
     { path: '/login', name: 'login', component: () => import('./pages/Login.vue'), meta: { guestOnly: true } },
     { path: '/register', name: 'register', component: () => import('./pages/Register.vue'), meta: { guestOnly: true } },
+    { path: '/verify-email', name: 'verifyEmail', component: () => import('./pages/VerifyEmail.vue') },
+    { path: '/forgot-password', name: 'forgotPassword', component: () => import('./pages/PasswordRecovery.vue') },
+    { path: '/reset-password', name: 'resetPassword', component: () => import('./pages/PasswordRecovery.vue') },
     { path: '/account', name: 'account', component: () => import('./pages/Account.vue'), meta: { requiresAuth: true } },
     { path: '/history', name: 'history', component: () => import('./pages/History.vue'), meta: { requiresAuth: true } },
     { path: '/pay/result', name: 'payResult', component: () => import('./pages/PayResult.vue'), meta: { requiresAuth: true } },
     { path: '/:pathMatch(.*)*', name: 'notFound', component: () => import('./pages/NotFound.vue') },
   ],
-  scrollBehavior: (to) => (to.hash ? { el: to.hash, top: 80, behavior: 'smooth' } : { top: 0 }),
+  scrollBehavior: (to) => (to.hash && !['verifyEmail', 'resetPassword'].includes(to.name) ? { el: to.hash, top: 80, behavior: 'smooth' } : { top: 0 }),
 })
 
 /** Route guard is only for UX; the backend validates the session on every protected API. */

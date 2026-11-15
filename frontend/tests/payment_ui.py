@@ -11,6 +11,10 @@ Screenshots go to .runtime/payment-ui/. Each test registers a fresh random user 
 """
 import os
 import secrets
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from auth_helpers import captcha_payload, fill_captcha
 import unittest
 from pathlib import Path
 
@@ -38,12 +42,12 @@ class PaymentUI(unittest.TestCase):
         self.page = self.context.new_page()
         self.errors = []
         self.page.on('pageerror', lambda e: self.errors.append(str(e)))
-        self.username = 'pay_ui_' + secrets.token_hex(4)
-        res = self.page.request.post(BASE + '/api/auth/register', data=dict(username=self.username, password=PASSWORD))
+        self.username = 'pay_ui_' + secrets.token_hex(4) + '@example.com'
+        res = self.page.request.post(BASE + '/api/auth/register', data=dict(email=self.username, nickname=self.username[:30], password=PASSWORD, **captcha_payload(self.page, BASE)))
         self.assertTrue(res.ok, res.text())
 
     def tearDown(self):
-        self.page.request.delete(BASE + '/api/account', data=dict(password=PASSWORD, confirm_username=self.username))
+        self.page.request.delete(BASE + '/api/account', data=dict(password=PASSWORD, confirm_email=self.username))
         self.context.close()
         self.assertEqual(self.errors, [])
 
@@ -69,8 +73,9 @@ class PaymentUI(unittest.TestCase):
         p.get_by_role('button', name='开通月卡', exact=True).click()
         auth = p.locator('dialog[aria-labelledby="auth-title"]')
         expect(auth).to_contain_text('登录后即可开通会员')
-        auth.get_by_label('用户名').fill(self.username)
+        auth.get_by_label('邮箱').fill(self.username)
         auth.get_by_label('密码', exact=True).fill(PASSWORD)
+        fill_captcha(auth)
         auth.get_by_role('button', name='登录', exact=True).click()
         dialog = p.locator('dialog[aria-labelledby="pay-title"]')
         expect(dialog).to_contain_text('¥19.90')

@@ -15,6 +15,7 @@ class RecoveryUI(unittest.TestCase):
         cls.browser = cls.pw.chromium.launch()
 
     @classmethod
+
     def tearDownClass(cls):
         cls.browser.close()
         cls.pw.stop()
@@ -26,6 +27,7 @@ class RecoveryUI(unittest.TestCase):
         self.page.route('**/api/**', lambda r: r.fulfill(json=dict(ok=True, ai_enabled=True, asr_enabled=True, plans=[])))
         self.page.route('**/api/auth/me', lambda r: r.fulfill(json=dict(user=USER)))
         self.page.route('**/api/parse', lambda r: r.fulfill(json=INFO))
+        self.page.route('**/api/auth/captcha', lambda r: r.fulfill(json=dict(id='ui-test', image='data:image/png;base64,iVBORw0KGgo=', expires_in=300)))
 
     def tearDown(self):
         self.page.close()
@@ -141,9 +143,9 @@ class RecoveryUI(unittest.TestCase):
                     self.page.get_by_role('tab', name='注册', exact=True).click()
                 dialog = self.page.locator('dialog[open]')
                 expect(dialog).to_be_visible()
-                username = dialog.get_by_label('用户名', exact=True)
+                username = dialog.get_by_label('邮箱', exact=True)
                 username.click()
-                username.fill('tester')
+                username.fill('tester@example.com')
                 dialog.get_by_label('密码', exact=True).click()
                 dialog.get_by_label('密码', exact=True).fill('password123')
                 dialog.get_by_role('button', name='显示密码', exact=True).first.click()
@@ -170,7 +172,7 @@ class RecoveryUI(unittest.TestCase):
         self.page.locator('nav').get_by_role('button', name='登录', exact=True).first.click()
         expect(self.page.locator('dialog[open]')).to_be_visible()
         self.page.locator('dialog[open]').evaluate('el => {el.close();el.showModal()}')
-        self.page.get_by_label('用户名', exact=True).click()
+        self.page.get_by_label('邮箱', exact=True).click()
         expect(self.page.locator('dialog[open]')).to_be_visible()
         self.page.keyboard.press('Escape')
         expect(self.page.locator('dialog[open]')).to_have_count(0)
@@ -181,12 +183,12 @@ class RecoveryUI(unittest.TestCase):
         self.page.goto(BASE)
         self.page.locator('nav').get_by_role('button', name='登录', exact=True).first.click()
         dialog = self.page.locator('dialog[open]')
-        dialog.get_by_label('用户名', exact=True).click()
-        dialog.get_by_label('用户名', exact=True).fill('tester')
+        dialog.get_by_label('邮箱', exact=True).click()
+        dialog.get_by_label('邮箱', exact=True).fill('tester@example.com')
         dialog.get_by_label('密码', exact=True).fill('password123')
         dialog.get_by_role('button', name='登录', exact=True).click()
         expect(dialog.get_by_role('alert')).to_contain_text('Invalid credentials')
-        dialog.get_by_label('用户名', exact=True).click()
+        dialog.get_by_label('邮箱', exact=True).click()
         expect(dialog).to_be_visible()
         self.page.route('**/api/auth/login', lambda r: r.fulfill(json=dict(user=USER)))
         dialog.get_by_role('button', name='登录', exact=True).click()

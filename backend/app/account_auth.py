@@ -65,7 +65,7 @@ def validate_password(password: str, username: str = ""):
     if not password.strip():
         raise AccountError("INVALID_PASSWORD", "密码不能全部为空白字符", 422)
     if username and password.lower() == username.lower():
-        raise AccountError("INVALID_PASSWORD", "密码不能与用户名相同", 422)
+        raise AccountError("INVALID_PASSWORD", "密码不能与登录邮箱相同", 422)
 
 
 def normalize_nickname(nickname: str) -> str:
@@ -185,3 +185,17 @@ def revoke_current(request: Request):
     token = _token(request)
     if token:
         store.delete_session_by_token(token_hash(token))
+
+
+def normalize_email(email: str) -> str:
+    email = email.strip().lower()
+    if len(email) > 254 or not email.isascii() or email.count('@') != 1:
+        raise AccountError("INVALID_EMAIL", "请输入正确的邮箱地址", 422)
+    local, domain = email.split('@')
+    labels = domain.split('.')
+    if (not 1 <= len(local) <= 64 or not re.fullmatch(r"[a-z0-9!#$%&'*+/=?^_`{|}~.-]+", local)
+            or local.startswith('.') or local.endswith('.') or '..' in local
+            or len(labels) < 2 or any(not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label) for label in labels)
+            or not re.fullmatch(r"[a-z]{2,63}", labels[-1])):
+        raise AccountError("INVALID_EMAIL", "请输入正确的邮箱地址", 422)
+    return email

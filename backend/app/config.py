@@ -60,6 +60,13 @@ MYSQL_TEST_DATABASE = os.getenv("MYSQL_TEST_DATABASE") or None
 AUTH_SESSION_DAYS = int(os.getenv("AUTH_SESSION_DAYS", "7"))
 AUTH_REGISTER_RATE_LIMIT = int(os.getenv("AUTH_REGISTER_RATE_LIMIT", "5"))  # per IP per 10 minutes
 AUTH_LOGIN_RATE_LIMIT = int(os.getenv("AUTH_LOGIN_RATE_LIMIT", "10"))  # per IP per minute
+AUTH_EMAIL_VERIFICATION_REQUIRED = os.getenv("AUTH_EMAIL_VERIFICATION_REQUIRED", "false").lower() == "true"
+SMTP_HOST = os.getenv("SMTP_HOST", "")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
+SMTP_SSL = os.getenv("SMTP_SSL", "true").lower() == "true"
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+SMTP_FROM = os.getenv("SMTP_FROM", "") or SMTP_USER
 # ZPAY (https://z-pay.cn). The key signs requests; it never leaves the server.
 ZPAY_PID = (os.getenv("ZPAY_PID") or "").strip() or None
 ZPAY_KEY = (os.getenv("ZPAY_KEY") or "").strip() or None

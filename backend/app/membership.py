@@ -343,7 +343,7 @@ def recover(entries, active_ids):
 def grant(username, code):
     """Local operator-only command; never exposed as a public upgrade endpoint."""
     with store._cursor() as cur:
-        cur.execute('SELECT id FROM users WHERE username_key=%s FOR UPDATE', (username.lower(),))
+        cur.execute('SELECT id FROM users WHERE email=%s OR username_key=%s FOR UPDATE', (username.strip().lower(), username.strip().lower()))
         user = cur.fetchone()
         if not user:
             raise ValueError('用户不存在')

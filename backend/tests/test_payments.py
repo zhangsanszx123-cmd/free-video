@@ -272,7 +272,7 @@ def test_paid_cycles_replace_free_and_renew_upgrade_preserve_usage(client, monke
 def test_orders_survive_account_deletion(client):
     user = uid(client)
     number = pay(client)
-    assert client.request('DELETE', '/api/account', json={'password': PASSWORD, 'confirm_username': 'alice'}).status_code == 200
+    assert client.request('DELETE', '/api/account', json={'password': PASSWORD, 'confirm_email': 'alice@example.com'}).status_code == 200
     assert row(number)['user_id'] is None and row(number)['status'] == 'paid'
     assert not query('SELECT * FROM user_memberships WHERE user_id=%s', (user,))
 

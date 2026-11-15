@@ -39,7 +39,7 @@ watch(() => account.user?.id ?? null, (now, before) => {
     <NavBar />
     <main class="flex-1">
       <!-- Remount when a user's session ends or switches so their results, chats and polling are dropped. -->
-      <RouterView :key="`${String(route.name)}:${account.version}`" />
+      <RouterView :key="`${String(route.name)}:${['verifyEmail', 'resetPassword'].includes(route.name) ? 'email-link' : account.version}`" />
     </main>
     <SiteFooter />
     <MobileCtaBar />

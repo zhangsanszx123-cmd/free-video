@@ -13,7 +13,7 @@ let disposed = false
 onUnmounted(() => { disposed = true })
 
 const user = computed(() => account.user)
-const displayName = computed(() => user.value?.nickname || user.value?.username || '')
+const displayName = computed(() => user.value?.nickname || user.value?.email || '')
 const fmtTime = (iso) => (iso ? new Date(iso).toLocaleString('zh-CN', { hour12: false }) : '')
 const toast = ref('')
 let toastTimer
@@ -91,7 +91,7 @@ async function changePassword() {
   if (pwd.saving) return
   pwd.error = ''
   pwd.oldError = !pwd.old ? '请输入当前密码' : ''
-  pwd.nextError = rules.password(pwd.next, user.value?.username) || (pwd.next === pwd.old ? '新密码不能与当前密码相同' : '')
+  pwd.nextError = rules.password(pwd.next, user.value?.email) || (pwd.next === pwd.old ? '新密码不能与当前密码相同' : '')
   pwd.confirmError = pwd.confirm !== pwd.next ? '两次输入的新密码不一致' : ''
   if (pwd.oldError || pwd.nextError || pwd.confirmError) return
   pwd.saving = true
@@ -158,13 +158,13 @@ onMounted(loadSessions)
 
 /* Delete account */
 const del = reactive({ password: '', confirm: '', saving: false, error: '' })
-const deleteReady = computed(() => del.password && del.confirm.toLowerCase() === (user.value?.username || '').toLowerCase())
+const deleteReady = computed(() => del.password && del.confirm.toLowerCase() === (user.value?.email || '').toLowerCase())
 async function deleteAccount() {
   if (del.saving || !deleteReady.value) return
   del.error = ''
   del.saving = true
   try {
-    await accountApi.deleteAccount({ password: del.password, confirm_username: del.confirm })
+    await accountApi.deleteAccount({ password: del.password, confirm_email: del.confirm })
     account.markLoggedOut('deleted')
   } catch (e) {
     if (!disposed) del.error = e.message
@@ -182,7 +182,7 @@ async function deleteAccount() {
         <div class="min-w-0 flex-1">
           <p class="mb-2 text-sm font-semibold text-indigo-600">个人中心</p>
           <h1 class="break-words [overflow-wrap:anywhere] text-2xl font-extrabold tracking-tight text-slate-950">{{ displayName }}</h1>
-          <p class="mt-1 break-words text-sm text-slate-500">用户名 @{{ user.username }} · 注册于 {{ fmtTime(user.created_at) }}</p>
+          <p class="mt-1 break-words text-sm text-slate-500">邮箱 {{ user.email }} · 注册于 {{ fmtTime(user.created_at) }}</p>
         </div>
         <span class="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 ring-1 ring-amber-200">
           <Icon name="crown" :size="14" /> {{ membership.data?.name || '我的会员' }}
@@ -230,7 +230,7 @@ async function deleteAccount() {
           <h2 id="profile-title" class="flex items-center gap-2 text-lg font-bold text-slate-900"><Icon name="user" :size="18" class="text-indigo-600" /> 基本资料</h2>
           <p class="mt-1 text-sm text-slate-500">{{ sections[1].description }}</p>
           <form class="mt-4 space-y-4" novalidate @submit.prevent="saveProfile">
-            <FormField :model-value="user.username" label="用户名" icon="user" disabled hint="用户名用于登录，不可修改" />
+            <FormField :model-value="user.email" label="邮箱" icon="user" disabled hint="邮箱用于登录，不可修改" />
             <FormField v-model="nickname" label="昵称" icon="edit" maxlength="30" autocomplete="nickname" :error="profile.error" :disabled="profile.saving" :hint="`${[...nickname].length} / 30 字符`" />
             <button type="submit" :disabled="profile.saving || !nicknameChanged" class="btn-primary flex min-h-11 w-full items-center justify-center rounded-xl font-bold">
               {{ profile.saving ? '保存中…' : '保存昵称' }}
@@ -243,7 +243,7 @@ async function deleteAccount() {
           <h2 id="password-title" class="flex items-center gap-2 text-lg font-bold text-slate-900"><Icon name="lock" :size="18" class="text-indigo-600" /> 修改密码</h2>
           <p class="mt-1 text-sm text-slate-500">{{ sections[2].description }}</p>
           <form class="mt-4 space-y-4" novalidate @submit.prevent="changePassword">
-            <input type="text" :value="user.username" autocomplete="username" class="hidden" tabindex="-1" aria-hidden="true" readonly />
+            <input type="text" :value="user.email" autocomplete="username" class="hidden" tabindex="-1" aria-hidden="true" readonly />
             <FormField v-model="pwd.old" label="当前密码" type="password" autocomplete="current-password" maxlength="128" :error="pwd.oldError" :disabled="pwd.saving" />
             <FormField v-model="pwd.next" label="新密码" type="password" autocomplete="new-password" maxlength="128" hint="8–128 个字符" :error="pwd.nextError" :disabled="pwd.saving" />
             <FormField v-model="pwd.confirm" label="确认新密码" type="password" autocomplete="new-password" maxlength="128" :error="pwd.confirmError" :disabled="pwd.saving" />
@@ -288,11 +288,11 @@ async function deleteAccount() {
 
       <section v-show="active === 'delete'" class="rounded-3xl border border-rose-200 bg-rose-50/60 p-6" aria-labelledby="delete-title">
         <h2 id="delete-title" class="flex items-center gap-2 text-lg font-bold text-rose-700"><Icon name="trash" :size="18" /> 注销账号</h2>
-        <p class="mt-1 text-sm text-rose-600/90">注销后账号与所有登录设备将被永久删除，无法恢复；用户名可被重新注册。</p>
+        <p class="mt-1 text-sm text-rose-600/90">注销后账号与所有登录设备将被永久删除，无法恢复；邮箱可被重新注册。</p>
         <button v-if="!deleteExpanded" type="button" aria-expanded="false" aria-controls="delete-form" class="btn-ghost mt-5 min-h-11 px-5 font-semibold text-rose-700" @click="deleteExpanded = true">申请注销账号</button>
         <form v-if="deleteExpanded" id="delete-form" class="mt-4 grid gap-4 sm:grid-cols-2" novalidate @submit.prevent="deleteAccount">
           <FormField v-model="del.password" label="当前密码" type="password" autocomplete="current-password" maxlength="128" />
-          <FormField v-model="del.confirm" label="输入用户名以确认" maxlength="32" :placeholder="user.username" />
+          <FormField v-model="del.confirm" label="输入邮箱以确认" maxlength="254" :placeholder="user.email" />
           <p v-if="del.error" role="alert" class="rounded-xl bg-white px-3 py-2.5 text-sm text-rose-600 sm:col-span-2">{{ del.error }}</p>
           <button type="submit" :disabled="del.saving || !deleteReady"
             class="min-h-11 rounded-xl bg-rose-600 px-5 font-bold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50 sm:col-span-2 sm:justify-self-start">

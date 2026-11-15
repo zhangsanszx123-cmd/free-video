@@ -117,7 +117,7 @@ def test_existing_plan_table_is_migrated_with_defaults(client):
 def test_paid_plans_use_their_own_limits(client):
     user = uid(client)
     assert membership.limits(user)['ai_monthly_limit'] == 10
-    membership.grant('alice', 'monthly')
+    membership.grant('alice@example.com', 'monthly')
     plan = membership.limits(user)
     assert (plan['ai_monthly_limit'], plan['batch_max_links'], plan['chat_daily_limit']) == (300, 10, 10)
     assert transcriptions.max_seconds(user) == 1800
@@ -213,7 +213,7 @@ def test_batch_link_limits_by_plan(client, monkeypatch):
     client.get('/api/transcription-session')
     sub = client.post('/api/batch-transcriptions', json={'urls': urls, 'allow_asr': True})
     assert sub.status_code == 403 and sub.json()['code'] == 'BATCH_LIMIT'
-    membership.grant('alice', 'monthly')
+    membership.grant('alice@example.com', 'monthly')
     assert main.batch_cap(user)[0] == 10
     assert client.post('/api/batch', json={'urls': urls, 'kind': 'audio'}).json() == {'id': 'ok'}
 

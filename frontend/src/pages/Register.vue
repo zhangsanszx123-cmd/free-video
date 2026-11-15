@@ -13,7 +13,7 @@ const toLogin = () => router.replace({ name: 'login', query: route.query.redirec
 </script>
 
 <template>
-  <AuthShell title="创建账号" subtitle="仅需用户名和密码，注册后自动登录">
+  <AuthShell title="创建账号" subtitle="使用常用邮箱和密码创建账号">
     <RegisterForm autofocus @success="router.replace(redirect)" @switch="toLogin" />
   </AuthShell>
 </template>

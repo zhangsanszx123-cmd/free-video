@@ -8,6 +8,9 @@ from app import config, main
 
 @pytest.fixture(autouse=True)
 def tmp_downloads(tmp_path, monkeypatch, request):
+    monkeypatch.setattr(config, 'AUTH_EMAIL_VERIFICATION_REQUIRED', False)
+    for name in ('SMTP_HOST', 'SMTP_USER', 'SMTP_PASSWORD', 'SMTP_FROM'):
+        monkeypatch.setattr(config, name, '')
     monkeypatch.setattr(config, "DOWNLOAD_DIR", tmp_path / "downloads")
     monkeypatch.setattr(config, "ASR_DIR", tmp_path / "transcriptions")
     monkeypatch.setattr(config, "DASHSCOPE_API_KEY", None)

@@ -12,7 +12,7 @@ from .errors import AccountError
 log = logging.getLogger("freevideo.accounts")
 SCHEMA_FILE = config.BASE_DIR / "sql" / "schema.sql"
 UNAVAILABLE = "账号服务暂不可用，请稍后再试"
-USER_FIELDS = "u.id, u.username, u.nickname, u.created_at"
+USER_FIELDS = "u.id, u.username, u.nickname, u.created_at, u.email, u.email_verified"
 # (plan, AI videos per cycle, links per batch, longest single recognition in minutes, chat questions per day)
 DEFAULT_LIMITS = [("free", 10, 3, 8, 1), ("monthly", 300, 10, 30, 10), ("yearly", 500, 15, 60, 20)]
 
@@ -37,6 +37,8 @@ def _cursor():
     except pymysql.err.IntegrityError as e:
         conn.rollback()
         if e.args and e.args[0] == 1062:
+            if "uq_users_email" in str(e):
+                raise AccountError("EMAIL_TAKEN", "该邮箱已被注册", 409) from e
             raise AccountError("USERNAME_TAKEN", "该用户名已被注册", 409) from e
         log.exception("MySQL integrity error")
         raise AccountError("DB_ERROR", UNAVAILABLE, 503) from e
@@ -59,6 +61,9 @@ def init_schema():
             body = "\n".join(line for line in sql.splitlines() if not line.lstrip().startswith("--")).strip()
             if body.upper().startswith("CREATE TABLE"):
                 cur.execute(body)
+        cur.execute("SHOW COLUMNS FROM users LIKE 'email'")
+        if not cur.fetchone():
+            cur.execute("ALTER TABLE users ADD COLUMN email VARCHAR(254) CHARACTER SET ascii COLLATE ascii_bin NULL, ADD COLUMN email_verified TINYINT NOT NULL DEFAULT 1, ADD UNIQUE KEY uq_users_email (email)")
         for column, definition in [('active_requests', 'INT UNSIGNED NOT NULL DEFAULT 0'), ('succeeded', 'TINYINT UNSIGNED NOT NULL DEFAULT 1')]:
             cur.execute(f"SHOW COLUMNS FROM ai_usage_videos LIKE '{column}'")
             if not cur.fetchone():
@@ -90,16 +95,17 @@ def _insert_session(cur, user_id: int, session: dict):
                  session["expires_at"], session["user_agent"], session["ip"]))
 
 
-def create_user(username: str, username_key: str, nickname: str, password_hash: str, session: dict) -> dict:
+def create_user(username: str, username_key: str, nickname: str, password_hash: str, session: dict | None, email: str | None = None, verified: bool = True) -> dict:
     """Create a user and its first login session in one transaction."""
     now = utcnow()
     with _cursor() as cur:
         cur.execute("INSERT INTO users (username, username_key, nickname, password_hash, created_at, updated_at,"
-                    " password_changed_at) VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                    (username, username_key, nickname, password_hash, now, now, now))
+                    " password_changed_at, email, email_verified) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                    (username, username_key, nickname, password_hash, now, now, now, email, int(verified)))
         user_id = cur.lastrowid
-        _insert_session(cur, user_id, session)
-    return {"id": user_id, "username": username, "nickname": nickname, "created_at": now}
+        if session:
+            _insert_session(cur, user_id, session)
+    return {"id": user_id, "username": username, "nickname": nickname, "created_at": now, "email": email, "email_verified": verified}
 
 
 def get_credentials(username_key: str) -> dict | None:
@@ -174,3 +180,9 @@ def delete_user(user_id: int):
     with _cursor() as cur:
         cur.execute("DELETE FROM sessions WHERE user_id = %s", (user_id,))
         cur.execute("DELETE FROM users WHERE id = %s", (user_id,))
+
+
+def get_email_credentials(email: str) -> dict | None:
+    with _cursor() as cur:
+        cur.execute(f"SELECT {USER_FIELDS}, u.password_hash FROM users u WHERE u.email = %s", (email,))
+        return cur.fetchone()

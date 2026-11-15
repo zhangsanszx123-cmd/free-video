@@ -18,6 +18,7 @@ class UIRegression(unittest.TestCase):
         cls.browser = cls.pw.chromium.launch()
 
     @classmethod
+
     def tearDownClass(cls):
         cls.browser.close()
         cls.pw.stop()
@@ -35,6 +36,7 @@ class UIRegression(unittest.TestCase):
             dict(code='free', name='免费用户', price_cents=0, monthly_seconds=1800),
             dict(code='monthly', name='月卡会员', price_cents=1990, monthly_seconds=36000),
             dict(code='yearly', name='年卡会员', price_cents=9900, monthly_seconds=108000)])))
+        self.page.route('**/api/auth/captcha', lambda r: r.fulfill(json=dict(id='ui-test', image='data:image/png;base64,iVBORw0KGgo=', expires_in=300)))
 
     def tearDown(self):
         self.page.close()
@@ -333,7 +335,7 @@ class UIRegression(unittest.TestCase):
         self.page.get_by_role('textbox').fill(' '.join(f'https://a.com/{i}' for i in range(4)))
         self.page.get_by_role('button', name='开始批量下载（4 条）').click()
         dialog = self.page.get_by_role('dialog')
-        dialog.get_by_label('用户名', exact=True).fill('tester')
+        dialog.get_by_label('邮箱', exact=True).fill('tester@example.com')
         dialog.get_by_label('密码', exact=True).fill('password123')
         dialog.get_by_role('button', name='登录', exact=True).click()
         expect(dialog).not_to_be_visible()
