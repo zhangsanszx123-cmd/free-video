@@ -20,9 +20,10 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', name: 'home', component: Home },
-    { path: '/batch', name: 'batch', component: () => import('./pages/Batch.vue'), meta: { requiresAuth: true } },
-    { path: '/ai', name: 'ai', component: () => import('./pages/AiTools.vue'), meta: { requiresAuth: true } },
-    { path: '/learn', name: 'learn', component: () => import('./learning/pages/LearnWorkbench.vue'), meta: { requiresAuth: true } },
+    // Guests may open these pages; the login dialog appears only when they actually start something.
+    { path: '/batch', name: 'batch', component: () => import('./pages/Batch.vue') },
+    { path: '/ai', name: 'ai', component: () => import('./pages/AiTools.vue') },
+    { path: '/learn', name: 'learn', component: () => import('./learning/pages/LearnWorkbench.vue') },
     { path: '/pricing', name: 'pricing', component: () => import('./pages/Pricing.vue') },
     { path: '/login', name: 'login', component: () => import('./pages/Login.vue'), meta: { guestOnly: true } },
     { path: '/register', name: 'register', component: () => import('./pages/Register.vue'), meta: { guestOnly: true } },

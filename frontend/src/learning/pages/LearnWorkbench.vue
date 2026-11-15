@@ -8,6 +8,7 @@ import AiLearningPanel from '../AiLearningPanel.vue'
 import { extractBilibiliBvid, extractYoutubeId, formatTs, platformTimeUrl } from '../learnApi.js'
 import { fmt } from '../../api.js'
 import { useParseRequest } from '../../useParseRequest.js'
+import { account, openAuth } from '../../account.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -25,6 +26,9 @@ const embedSeekSec = ref(0)
 const embedAutoplay = ref(false)
 const toast = ref('')
 let toastTimer = null
+let disposed = false
+const checking = ref(false)
+let actionVersion = 0
 
 function showToast(msg) {
   clearTimeout(toastTimer)
@@ -60,7 +64,17 @@ async function pasteClipboard() {
 
 async function startParse() {
   const raw = inputUrl.value.trim()
-  if (!raw || parsing.value) return
+  if (disposed || !raw || parsing.value || checking.value) return
+  const current = actionVersion
+  const valid = () => !disposed && current === actionVersion
+  checking.value = true
+  try {
+    await account.ensure()
+    if (!valid()) return
+    if (!account.loggedIn) return openAuth({ notice: '登录后即可使用 AI 学习工作台', onSuccess: () => { if (valid()) startParse() } })
+  } finally {
+    checking.value = false
+  }
   parseError.value = ''
   info.value = null
   transcriptResult.value = null
@@ -129,8 +143,8 @@ function clearInput() {
   parseError.value = ''
   router.replace({ path: '/learn' }).catch(() => {})
 }
-watch(inputUrl, () => { cancelParse(); parseError.value = '' }, { flush: 'sync' })
-onUnmounted(() => clearTimeout(toastTimer))
+watch(inputUrl, () => { actionVersion++; cancelParse(); parseError.value = '' }, { flush: 'sync' })
+onUnmounted(() => { disposed = true; clearTimeout(toastTimer) })
 </script>
 
 <template>
@@ -168,10 +182,10 @@ onUnmounted(() => clearTimeout(toastTimer))
               </button>
             </div>
           </div>
-          <button type="submit" :disabled="parsing || !inputUrl.trim()"
+          <button type="submit" :disabled="checking || parsing || !inputUrl.trim()"
             class="btn-primary inline-flex min-h-[48px] items-center justify-center gap-2 rounded-xl px-6 text-sm font-bold">
             <LearnIcon :name="parsing ? 'loader' : 'sparkles'" :size="17" :class="{ 'animate-spin': parsing }" />
-            <span>{{ parsing ? '正在载入视频…' : '进入学习工作台' }}</span>
+            <span>{{ checking ? '正在检查登录状态…' : parsing ? '正在载入视频…' : '进入学习工作台' }}</span>
           </button>
         </form>
         <p role="alert" v-if="parseError" class="mt-2.5 flex items-center gap-2 rounded-xl bg-rose-50 px-3 py-2 text-xs text-rose-600 sm:text-sm">

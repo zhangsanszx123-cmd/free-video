@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import Icon from './Icon.vue'
 import { api, downloadArchive, triggerDownload } from '../api.js'
+import { account } from '../account.js'
 
 const emit = defineEmits(['busy', 'restored'])
 const job = ref(null)
@@ -97,7 +98,9 @@ async function downloadZip() {
   } catch (e) { if (!disposed) notify(e.message) }
   finally { exporting.value = false }
 }
-onMounted(() => {
+onMounted(async () => {
+  await account.ensure()
+  if (disposed || !account.loggedIn) return
   let id
   try { id = localStorage.getItem(storageKey) } catch { /* ignore */ }
   if (id && /^[a-f0-9]{32}$/.test(id)) {

@@ -1,5 +1,18 @@
 # FreeVideo 方案设计文档
 
+## 2026-11-15 功能页登录检查与套餐同步
+
+- `Batch.vue` 监听账号 ID，登录后调用共享 `loadMembership()`；`start` 在提交前等待套餐查询，并检查组件存活、操作版本和账号 ID。查询失败停止提交并显示可重试错误。会员查询沿用共享 pending 去重。
+- `Batch.vue`、`AiTools.vue`、`LearnWorkbench.vue` 使用 `checking` 锁定登录检查期间的重复提交，使用同步 watcher 增加操作版本；异步检查和登录成功回调都检查该版本及 `disposed`，防止编辑输入、切换选项或离页后的迟到操作。
+- 新增浏览器回归覆盖游客登录后套餐延迟返回、套餐查询失败后重试，以及三个页面在登录状态延迟返回时离页或编辑输入（分别模拟游客及已登录响应）。
+
+## 2026-11-15 功能页浏览与操作鉴权（用户确认保留）
+
+- `router.js` 的 `/batch`、`/ai`、`/learn` 允许游客浏览；`/account`、`/history`、`/pay/result` 保留路由鉴权。
+- `Batch.start`、`AiTools.run`、`LearnWorkbench.startParse` 在执行前检查账号状态，通过登录弹窗及成功回调继续操作；回调在组件卸载后不继续操作。
+- `BatchSubtitleResults` 挂载时确认已登录后才恢复最近批次，避免游客浏览触发受保护查询。后端接口鉴权不变。
+- 以下早期功能页路由鉴权描述以本节为准；已确认并实现的边界修复见上方「功能页登录检查与套餐同步」。
+
 ## 2026-11-15 游客额度架构
 
 - `guest.py`：表 `guest_links(subject, link_key, raw_key, duration_seconds, claimed_by, ...)`，`subject` 为 `c:<签名 Cookie id>` 或 `i:<IP>`。Cookie `freevideo_guest`（HttpOnly、SameSite=Lax、Path=/api、10 年，HMAC 复用 `transcription_auth` 的密钥）仅在首次成功解析时下发，伪造或篡改签名视为无 Cookie。

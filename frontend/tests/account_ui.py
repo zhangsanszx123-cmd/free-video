@@ -82,11 +82,18 @@ class AccountUI(unittest.TestCase):
     def test_guest_dialog_register_and_return(self):
         page = self.new_page()
         page.goto(BASE + '/')
+        page.route('**/api/batch', lambda r: r.fulfill(status=400, json=dict(detail='测试：登录后已继续提交')))
         page.locator('nav').get_by_role('link', name='批量提取').click()
+        # Guests may open the page; the dialog only appears when they really start something.
+        page.wait_for_url(BASE + '/batch')
         d = self.dialog(page)
+        expect(d).to_be_hidden()
+        page.get_by_label('下载格式').select_option('video')
+        page.get_by_role('textbox').fill(INFO['url'])
+        page.get_by_role('button', name='开始批量下载（1 条）').click()
         expect(d).to_be_visible()
-        expect(d.get_by_role('status')).to_contain_text('请先登录后使用该功能')
-        self.assertEqual(page.url, BASE + '/')  # stays on the current page under the dialog
+        expect(d.get_by_role('status')).to_contain_text('登录后即可使用批量提取')
+        self.assertEqual(page.url, BASE + '/batch')
         expect(d.get_by_label('用户名')).to_be_focused()
         page.screenshot(path=SHOTS / 'dialog-login-desktop.png')
         d.get_by_role('tab', name='注册').click()
@@ -96,14 +103,15 @@ class AccountUI(unittest.TestCase):
         page.screenshot(path=SHOTS / 'dialog-register-desktop.png')
         d.get_by_label('确认密码').fill(PASSWORD)
         d.get_by_role('button', name='注册并登录').click()
-        page.wait_for_url(BASE + '/batch')
         expect(d).to_be_hidden()
+        self.assertEqual(page.url, BASE + '/batch')
         expect(page.get_by_role('button', name='端到端用户')).to_be_visible()
+        expect(page.get_by_text('测试：登录后已继续提交')).to_be_visible()  # the click resumed after login
         page.reload()
         expect(page).to_have_url(BASE + '/batch')
         # first load of a protected URL as guest: home + dialog; closing keeps the user on home
         guest = self.new_page()
-        guest.goto(BASE + '/batch')
+        guest.goto(BASE + '/account')
         guest.wait_for_url(BASE + '/')
         gd = self.dialog(guest)
         expect(gd).to_be_visible()

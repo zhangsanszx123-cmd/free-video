@@ -1,10 +1,11 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import Icon from '../components/Icon.vue'
 import JobProgress from '../components/JobProgress.vue'
 import BatchSubtitleResults from '../components/BatchSubtitleResults.vue'
 import { api, extractUrls, pollJob } from '../api.js'
 import { loadMembership, membership } from '../membership.js'
+import { account, openAuth } from '../account.js'
 
 const healthMax = ref(20)
 const text = ref('')
@@ -18,6 +19,10 @@ let stop = null
 const submitting = ref(false)
 let disposed = false
 const healthAsrMax = ref(60)
+const checking = ref(false)
+let actionVersion = 0
+watch([text, kind, quality], () => { actionVersion++ }, { flush: 'sync' })
+watch(() => account.user?.id, () => { if (account.loggedIn) loadMembership() }, { immediate: true })
 
 const urls = computed(() => extractUrls(text.value))
 // The plan limit comes from the account; the server's global MAX_BATCH is only the ceiling.
@@ -25,7 +30,7 @@ const MAX = computed(() => Math.min(membership.data?.batch_max_links || healthMa
 const asrMax = computed(() => membership.data?.asr_max_minutes || healthAsrMax.value)
 const planName = computed(() => membership.data?.name || '当前套餐')
 const overLimit = computed(() => urls.value.length > MAX.value)
-const busy = computed(() => submitting.value || subtitleBusy.value || Boolean(job.value && !['done', 'error'].includes(job.value.status)))
+const busy = computed(() => checking.value || submitting.value || subtitleBusy.value || Boolean(job.value && !['done', 'error'].includes(job.value.status)))
 const statusStyle = {
   queued: ['clock', 'text-slate-400', '等待中'],
   running: ['loader', 'text-indigo-500 animate-spin', '下载中'],
@@ -35,7 +40,24 @@ const statusStyle = {
 }
 
 async function start() {
-  if (busy.value) return
+  if (disposed || busy.value) return
+  const current = actionVersion
+  const valid = () => !disposed && current === actionVersion
+  checking.value = true
+  try {
+    await account.ensure()
+    if (!valid()) return
+    if (!account.loggedIn) return openAuth({ notice: '登录后即可使用批量提取', onSuccess: () => { if (valid()) start() } })
+    const uid = account.user.id
+    await loadMembership()
+    if (!valid() || uid !== account.user?.id) return
+    if (membership.error || !membership.data) {
+      error.value = membership.error || '暂时无法读取套餐限制，请重试'
+      return
+    }
+  } finally {
+    checking.value = false
+  }
   error.value = ''
   if (!urls.value.length) return (error.value = '未识别到有效链接')
   if (overLimit.value) return (error.value = `${planName.value}单次最多 ${MAX.value} 条，当前 ${urls.value.length} 条`)
@@ -64,7 +86,6 @@ onMounted(async () => {
       healthMax.value = health.max_batch || 20
     }
   } catch { /* keep the default hint */ }
-  loadMembership()
 })
 onUnmounted(() => { disposed = true; stop?.() })
 </script>
@@ -105,7 +126,7 @@ onUnmounted(() => { disposed = true; stop?.() })
         <p v-if="kind === 'subtitle'" class="mt-4 flex items-start gap-2 rounded-xl border border-amber-100 bg-amber-50/80 p-3 text-xs leading-6 text-amber-800"><Icon name="alert" :size="16" class="mt-1 shrink-0" /><span>优先提取平台字幕；无字幕时自动使用语音识别，并消耗你的每月语音识别额度（额度不足时会提示）。单条最长 {{ asrMax }} 分钟；网络或鉴权失败不会自动转为语音识别。</span></p>
         <button class="btn-primary mt-4 flex w-full items-center justify-center gap-2 rounded-2xl py-4 text-base font-bold" :disabled="busy || !urls.length" @click="start">
           <Icon :name="busy ? 'loader' : 'layers'" :size="18" :class="{ 'animate-spin': busy }" />
-          {{ busy ? (kind === 'subtitle' ? '正在提取字幕…' : '批量下载中…') : kind === 'subtitle' ? `开始批量提取字幕（${urls.length} 条）` : `开始批量下载（${urls.length} 条）` }}
+          {{ checking ? '正在检查账号与套餐…' : busy ? (kind === 'subtitle' ? '正在提取字幕…' : '批量下载中…') : kind === 'subtitle' ? `开始批量提取字幕（${urls.length} 条）` : `开始批量下载（${urls.length} 条）` }}
         </button>
         <p role="alert" v-if="error" class="mt-3 flex items-center gap-2 text-sm text-rose-600"><Icon name="alert" :size="16" /> {{ error }}<RouterLink v-if="/批量|最多/.test(error)" to="/pricing" class="font-semibold underline">升级提高上限</RouterLink></p>
 

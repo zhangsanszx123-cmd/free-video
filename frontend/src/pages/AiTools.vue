@@ -1,11 +1,12 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import Icon from '../components/Icon.vue'
 import JobProgress from '../components/JobProgress.vue'
 import { api, pollJob, streamSSE } from '../api.js'
+import { account, openAuth } from '../account.js'
 
 const route = useRoute()
 const tab = ref('summary')
@@ -22,6 +23,9 @@ let stop = null
 let summaryCtrl = null
 const submitting = ref(false)
 let disposed = false
+const checking = ref(false)
+let actionVersion = 0
+watch([url, tab, targetLang], () => { actionVersion++ }, { flush: 'sync' })
 
 const html = computed(() => DOMPurify.sanitize(marked.parse(markdown.value || '')))
 
@@ -75,8 +79,21 @@ async function translate() {
   }
 }
 
-const busy = computed(() => submitting.value || loading.value || (job.value && !['done', 'error'].includes(job.value.status)))
-const run = () => url.value.trim() && !busy.value && (tab.value === 'summary' ? summarize() : translate())
+const busy = computed(() => checking.value || submitting.value || loading.value || (job.value && !['done', 'error'].includes(job.value.status)))
+async function run() {
+  if (disposed || !url.value.trim() || busy.value) return
+  const current = actionVersion
+  const valid = () => !disposed && current === actionVersion
+  checking.value = true
+  try {
+    await account.ensure()
+    if (!valid()) return
+    if (!account.loggedIn) return openAuth({ notice: '登录后即可使用 AI 总结与字幕翻译', onSuccess: () => { if (valid()) run() } })
+  } finally {
+    checking.value = false
+  }
+  return tab.value === 'summary' ? summarize() : translate()
+}
 async function copy() {
   try {
     await navigator.clipboard.writeText(markdown.value)
@@ -119,7 +136,7 @@ async function copy() {
           <button type="submit" :disabled="busy || !url.trim() || !aiEnabled"
             class="btn-primary inline-flex min-h-[54px] items-center justify-center gap-2 rounded-2xl px-7 font-bold">
             <Icon :name="busy ? 'loader' : 'sparkles'" :size="18" :class="{ 'animate-spin': busy }" />
-            {{ tab === 'summary' ? (loading ? '总结中…' : '开始总结') : '生成双语字幕' }}
+            {{ checking ? '正在检查登录状态…' : tab === 'summary' ? (loading ? '总结中…' : '开始总结') : '生成双语字幕' }}
           </button>
         </form>
         <p class="mt-2 text-xs text-slate-400">提示：仅支持有字幕（含自动字幕）的视频；YouTube 大多数视频都有自动字幕。</p>

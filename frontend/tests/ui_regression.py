@@ -320,6 +320,96 @@ class UIRegression(unittest.TestCase):
         expect(dialog).to_contain_text('名额已用完')
         expect(self.page.get_by_role('alert').first).to_contain_text('名额已用完')
 
+    def test_batch_login_refreshes_limits_before_resuming(self):
+        self.page.route('**/api/auth/me', lambda r: r.fulfill(json=dict(user=None)))
+        user = dict(id=1, username='tester', nickname='Tester', created_at='2026-11-10T00:00:00Z')
+        self.page.route('**/api/auth/login', lambda r: r.fulfill(json=dict(user=user)))
+        pending = []
+        posted = []
+        self.page.route('**/api/account/membership', lambda r: pending.append(r))
+        self.page.route('**/api/batch', lambda r: (posted.append(r.request.url), r.fulfill(json=dict(id='test', status='done')))[0])
+        self.page.goto(BASE + '/batch')
+        self.page.get_by_label('下载格式').select_option('video')
+        self.page.get_by_role('textbox').fill(' '.join(f'https://a.com/{i}' for i in range(4)))
+        self.page.get_by_role('button', name='开始批量下载（4 条）').click()
+        dialog = self.page.get_by_role('dialog')
+        dialog.get_by_label('用户名', exact=True).fill('tester')
+        dialog.get_by_label('密码', exact=True).fill('password123')
+        dialog.get_by_role('button', name='登录', exact=True).click()
+        expect(dialog).not_to_be_visible()
+        self.page.wait_for_timeout(150)
+        self.assertEqual(posted, [], 'Must wait for account limits before submitting')
+        self.assertEqual(len(pending), 1)
+        pending.pop().fulfill(json=self.MEMBER)
+        expect(self.page.get_by_text('免费用户单次最多 3 条 · 自动去重')).to_be_visible()
+        expect(self.page.get_by_role('alert')).to_contain_text('单次最多 3 条')
+        self.assertEqual(posted, [])
+
+    def test_auth_check_does_not_resume_after_navigation_or_edit(self):
+        for path, button in [('/batch', '开始批量下载（1 条）'), ('/ai', '开始总结'),
+                             ('/learn', '进入学习工作台')]:
+            for action in ('navigate', 'edit', 'navigate_authed', 'edit_authed'):
+                with self.subTest(path=path, action=action):
+                    pending = []
+                    posted = []
+                    self.page.route('**/api/auth/me', lambda r: pending.append(r))
+                    for endpoint in ('batch', 'ai/summary', 'parse'):
+                        self.page.route('**/api/' + endpoint, lambda r: (posted.append(r.request.url), r.abort())[0])
+                    self.page.goto(BASE + path)
+                    if path == '/batch':
+                        self.page.get_by_label('下载格式').select_option('video')
+                    self.page.get_by_role('textbox').first.fill(INFO['url'])
+                    self.page.get_by_role('button', name=button, exact=True).click()
+                    if action.startswith('navigate'):
+                        self.page.get_by_role('link', name='定价', exact=True).first.click()
+                        self.page.wait_for_url(BASE + '/pricing')
+                    else:
+                        # Simulate an input event already queued when the check began.
+                        self.page.get_by_role('textbox').first.evaluate("el => { el.value = 'https://example.com/changed'; el.dispatchEvent(new Event('input', {bubbles:true})) }")
+                    self.assertTrue(pending)
+                    user = dict(id=1, username='tester', nickname='Tester', created_at='2026-11-10T00:00:00Z') if action.endswith('_authed') else None
+                    for request in pending:
+                        request.fulfill(json=dict(user=user))
+                    self.page.wait_for_timeout(150)
+                    expect(self.page.get_by_role('dialog')).not_to_be_visible()
+                    self.assertEqual(posted, [])
+                    self.page.unroute('**/api/auth/me')
+
+    def test_batch_membership_failure_can_retry_without_submitting(self):
+        self.page.route('**/api/account/membership', lambda r: r.fulfill(status=503, json=dict(detail='membership unavailable')))
+        posted = []
+        self.page.route('**/api/batch', lambda r: (posted.append(r.request.url), r.fulfill(json=dict(id='test', status='done')))[0])
+        self.page.goto(BASE + '/batch')
+        self.page.get_by_label('下载格式').select_option('video')
+        self.page.get_by_role('textbox').fill(INFO['url'])
+        self.page.get_by_role('button', name='开始批量下载（1 条）').click()
+        expect(self.page.get_by_role('alert')).to_contain_text('membership unavailable')
+        self.assertEqual(posted, [])
+        self.page.route('**/api/account/membership', lambda r: r.fulfill(json=self.MEMBER))
+        self.page.get_by_role('button', name='开始批量下载（1 条）').click()
+        expect(self.page.get_by_text('免费用户单次最多 3 条 · 自动去重')).to_be_visible()
+        self.page.wait_for_timeout(150)
+        self.assertEqual(len(posted), 1)
+
+    def test_guest_can_open_ai_and_batch_pages_and_is_asked_on_action(self):
+        self.page.route('**/api/auth/me', lambda r: r.fulfill(json=dict(user=None)))
+        posted = []
+        for endpoint in ('batch', 'ai/translate', 'ai/summary', 'parse'):
+            self.page.route('**/api/' + endpoint, lambda r: (posted.append(r), r.abort())[0])
+        for path, url_box, button in (('/batch', None, '开始批量下载（1 条）'), ('/ai', None, '开始总结'),
+                                      ('/learn', None, '进入学习工作台')):
+            self.page.goto(BASE + path)
+            expect(self.page.get_by_role('dialog')).to_have_count(0)
+            self.assertEqual(self.page.url, BASE + path)
+            if path == '/batch':
+                self.page.get_by_label('下载格式').select_option('video')
+            self.page.get_by_role('textbox').first.fill(INFO['url'])
+            self.page.get_by_role('button', name=button, exact=True).click()
+            expect(self.page.get_by_role('dialog')).to_be_visible()
+            self.page.keyboard.press('Escape')
+            expect(self.page.get_by_role('dialog')).not_to_be_visible()
+        self.assertEqual(posted, [])
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
