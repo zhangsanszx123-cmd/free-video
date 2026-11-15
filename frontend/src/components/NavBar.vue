@@ -124,7 +124,6 @@ onUnmounted(() => {
         </div>
         <template v-else-if="account.status !== 'unknown'">
           <button type="button" class="rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:text-indigo-600" @click="openDialog('login')">登录</button>
-          <button type="button" class="btn-ghost px-3 py-2 text-sm font-semibold" @click="openDialog('register')">注册</button>
         </template>
       </div>
 

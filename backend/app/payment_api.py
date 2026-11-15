@@ -15,6 +15,7 @@ router = APIRouter(tags=["payments"])
 
 class OrderReq(BaseModel):
     plan: Literal["monthly", "yearly"]
+    pay_type: Literal['alipay'] = 'alipay'
 
 
 @router.post("/api/pay/orders")

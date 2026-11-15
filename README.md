@@ -8,6 +8,8 @@
 
 账号竞态修复：旧账号查询不会覆盖新身份，首页切回下载会废弃旧 AI 登录续作，改密或找回后旧凭证不能再创建会话。实现、测试结果与人工验收见 [账号竞态修复验证](docs/account-race-verification.md)。
 
+界面更新：桌面导航仅保留登录，注册可从登录弹窗进入；账号菜单展示额度摘要，个人中心展示完整用量。支付弹窗默认选择支付宝，微信标注「暂未开放」；当前仍跳转收银台，站内二维码扫码待确认。验证与验收见 [前端审查验证记录](docs/frontend-audit-verification.md)。
+
 文档：[需求分析](docs/requirements.md) ｜ [方案设计](docs/design.md) ｜ [视频转文字配置与验收](docs/video-to-text-setup.md) ｜ [账号功能验收](docs/account-verification.md) ｜ [会员额度与本机管理](docs/membership-quota-plan.md) ｜ [会员与历史任务验收](docs/membership-verification.md) ｜ [ZPAY 支付配置与验收](docs/zpay-setup.md)
 
 ## 技术栈
@@ -83,7 +85,7 @@ cd ../backend
 | POST | `/api/auth/register` / `login` / `logout`，GET `/api/auth/me` | 注册、登录、退出、当前用户 |
 | PATCH/POST/GET/DELETE | `/api/account/profile` / `password` / `sessions` / `/api/account` | 个人中心：昵称、改密、登录设备、注销 |
 | GET | `/api/plans`、`/api/account/membership`、`/api/account/history*` | 套餐、会员额度、历史任务 |
-| POST/GET | `/api/pay/orders` `{plan}`、`/api/pay/orders/{no}` | 创建支付宝订单（需登录）、我的订单、查询并确认支付结果 |
+| POST/GET | `/api/pay/orders` `{plan,pay_type?:"alipay"}`、`/api/pay/orders/{no}` | 创建支付宝订单（需登录，省略 pay_type 默认支付宝）、我的订单、查询并确认支付结果 |
 | GET/POST | `/api/pay/notify` | ZPAY 异步通知（验签 + 查单确认，返回纯文本 success） |
 | GET | `/api/jobs/{id}` / `/api/jobs/{id}/file` | 任务进度 / 下载文件 |
 

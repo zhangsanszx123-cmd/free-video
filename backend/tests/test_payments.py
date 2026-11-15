@@ -73,6 +73,11 @@ def test_sign_algorithm_and_money():
 
 def test_disabled_and_validation(client, monkeypatch):
     uid(client)
+    for method in ('wxpay', 'unknown'):
+        assert client.post('/api/pay/orders', json={'plan': 'monthly', 'pay_type': method}).status_code == 422
+    assert not query('SELECT out_trade_no FROM payment_orders')
+    explicit = client.post('/api/pay/orders', json={'plan': 'monthly', 'pay_type': 'alipay'})
+    assert explicit.status_code == 200 and explicit.json()['fields']['type'] == 'alipay'
     assert client.post('/api/pay/orders', json={'plan': 'free'}).status_code == 422
     assert make_client().post('/api/pay/orders', json={'plan': 'monthly'}).status_code == 401
     assert client.post('/api/pay/orders', json={'plan': 'monthly'}, headers={'origin': 'https://evil.example'}).status_code == 403

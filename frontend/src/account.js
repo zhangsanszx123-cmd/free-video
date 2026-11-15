@@ -36,7 +36,7 @@ async function call(path, { method = 'GET', body } = {}) {
 export const accountApi = {
   membership: () => call('/api/account/membership'),
   plans: () => call('/api/plans'),
-  createOrder: (plan) => call('/api/pay/orders', { method: 'POST', body: { plan } }),
+  createOrder: (plan, payType = 'alipay') => call('/api/pay/orders', { method: 'POST', body: { plan, pay_type: payType } }),
   order: (no) => call(`/api/pay/orders/${encodeURIComponent(no)}`),
   orders: () => call('/api/pay/orders'),
   history: (params) => call(`/api/account/history?${new URLSearchParams(params)}`),

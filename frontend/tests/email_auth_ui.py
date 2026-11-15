@@ -30,7 +30,9 @@ with sync_playwright() as pw:
         page.route('**/api/**', api)
         page.goto('http://127.0.0.1:5178/')
         if width <= 600: page.get_by_role('button', name='打开导航菜单').click()
-        page.locator('nav').get_by_role('button', name='免费注册' if width <= 600 else '注册', exact=True).click()
+        page.locator('nav').get_by_role('button', name='免费注册' if width <= 600 else '登录', exact=True).click()
+        if width > 600:
+            page.locator('dialog[open]').get_by_role('tab', name='注册', exact=True).click()
         dialog = page.locator('dialog[aria-labelledby="auth-title"]')
         expect(dialog.get_by_label('邮箱', exact=True)).to_be_visible()
         assert dialog.locator('input').count() == 3
