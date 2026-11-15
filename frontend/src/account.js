@@ -5,6 +5,7 @@ const BATCH_SUBTITLES_KEY = 'fv-batch-subtitles'
 const channel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('fv-auth') : null
 const STORAGE_EVENT_KEY = 'fv-auth-event'
 const LAST_USER_KEY = 'fv-auth-last-user'
+let identityGeneration = 0
 
 async function call(path, { method = 'GET', body } = {}) {
   let res
@@ -114,17 +115,25 @@ export const account = reactive({
     return this.refresh()
   },
 
-  refresh() {
+  refresh(force = false) {
+    if (force) { identityGeneration++; this._pending = null }
     if (this._pending) return this._pending
-    this._pending = accountApi.me()
-      .then(({ user }) => { setUser(user, false); return user })
+    const generation = identityGeneration
+    const pending = accountApi.me()
+      .then(({ user }) => {
+        if (generation !== identityGeneration) return this.user
+        setUser(user, false)
+        return user
+      })
       .catch((e) => {
+        if (generation !== identityGeneration) return this.user
         this.status = 'error'
         this.error = e.message
         return null
       })
-      .finally(() => { this._pending = null })
-    return this._pending
+      .finally(() => { if (this._pending === pending) this._pending = null })
+    this._pending = pending
+    return pending
   },
 
   async login(body) {
@@ -192,6 +201,8 @@ function syncPerUserState(userId) {
 }
 
 function setUser(user, broadcast = true) {
+  identityGeneration++
+  account._pending = null
   const before = account.user?.id ?? null
   const after = user?.id ?? null
   const initial = account.status === 'unknown'
@@ -215,7 +226,7 @@ function notifyOtherTabs(userId) {
 
 function onRemoteChange(message) {
   if (message?.type !== 'auth-changed') return
-  account.refresh()
+  account.refresh(true)
 }
 
 if (channel) channel.onmessage = (event) => onRemoteChange(event.data)

@@ -196,5 +196,19 @@ class RecoveryUI(unittest.TestCase):
         expect(self.page.locator('nav').get_by_role('button', name='Tester', exact=True)).to_be_visible()
 
 
+    def test_switching_to_download_discards_pending_ai_login_check(self):
+        pending = []
+        self.page.route('**/api/auth/me', lambda r: pending.append(r))
+        self.page.goto(BASE)
+        self.page.get_by_role('textbox', name='视频链接或分享口令').fill(INFO['url'])
+        self.page.get_by_role('tab', name='AI 视频总结', exact=True).click()
+        download = self.page.get_by_role('tab', name='素材与文案下载', exact=True)
+        download.click()
+        for route in pending:
+            route.fulfill(json=dict(user=USER))
+        self.page.wait_for_timeout(250)
+        expect(download).to_have_attribute('aria-selected', 'true')
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

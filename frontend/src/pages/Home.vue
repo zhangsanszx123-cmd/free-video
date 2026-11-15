@@ -74,6 +74,7 @@ async function aiAllowed(resume) {
 }
 
 async function submitWithView(view = 'download') {
+  actionVersion++
   if (view === 'ai' && !(await aiAllowed(() => submitWithView('ai')))) return
   activeView.value = view
   const target = url.value.trim()
@@ -90,6 +91,7 @@ async function submitWithView(view = 'download') {
 }
 
 async function selectTab(view) {
+  actionVersion++
   if (view === 'ai' && !(await aiAllowed(() => selectTab('ai')))) return
   activeView.value = view
   const target = url.value.trim()

@@ -1,5 +1,13 @@
 # FreeVideo 方案设计文档
 
+## 2026-11-15 账号与首页竞态修复
+
+- `account.js` 为身份查询维护独立 generation。所有 `setUser` 使旧查询失效；迟到成功和错误都不写回。`refresh(true)` 用于跨标签通知，立即发起新查询；旧请求 finally 仅清理自身的 pending 引用。
+- 首页 `submitWithView/selectTab` 每次操作递增 `actionVersion`，AI 登录检查与登录续作复核版本；切回下载使先前意图失效。
+- `account_store.create_session` 必须接收验密使用的密码哈希；事务内先 `SELECT ... FOR UPDATE` 锁用户，复核密码哈希及邮箱验证状态，再插入会话。改密先完成则登录返回 401；登录先完成则后续改密删除该会话。
+- 回归包括迟到游客／旧用户／错误响应、新跨标签查询替代旧查询、首页延迟登录检查后切回下载，以及真实测试库中验密与会话写入之间完成改密或找回重置的交错场景。
+- 自动化结果、重跑方式与人工验收见 [账号竞态修复验证](./account-race-verification.md)。部署时需重启后端加载 Python 改动。
+
 ## 2026-11-15 找回密码
 
 - `ForgotPasswordForm.vue` 共用于账号弹窗第三选项卡与备用 `/forgot-password` 页面。登录表单在弹窗内仅切换 `authModal.tab='forgot'`，不重置 redirect/onSuccess；独立登录页可打开同一个找回弹窗。发信提示不关闭弹窗，返回登录仅切换选项卡。

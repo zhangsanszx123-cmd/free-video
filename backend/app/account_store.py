@@ -121,8 +121,14 @@ def get_password_hash(user_id: int) -> str | None:
     return row["password_hash"] if row else None
 
 
-def create_session(user_id: int, session: dict):
+def create_session(user_id: int, session: dict, expected_password_hash: str):
     with _cursor() as cur:
+        # Serialize with password reset/update: an earlier successful password
+        # check must not mint a session after that credential was revoked.
+        cur.execute('SELECT password_hash,email_verified FROM users WHERE id=%s FOR UPDATE', (user_id,))
+        user = cur.fetchone()
+        if not user or user['password_hash'] != expected_password_hash or not user['email_verified']:
+            raise AccountError('INVALID_CREDENTIALS', '邮箱或密码错误', 401)
         cur.execute("DELETE FROM sessions WHERE expires_at <= %s", (utcnow(),))
         _insert_session(cur, user_id, session)
 

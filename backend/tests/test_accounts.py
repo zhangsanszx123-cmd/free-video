@@ -511,3 +511,31 @@ def test_database_unavailable_returns_503(client, monkeypatch):
     assert client.post("/api/batch", json={"urls": ["https://a.com/1"]}).status_code == 401  # no cookie → guest
     client.cookies.set("freevideo_auth", "x" * 43, path="/api")
     assert client.get("/api/auth/me").status_code == 503
+
+
+@pytest.mark.parametrize('recovery', [False, True])
+def test_password_change_between_login_verification_and_session_insert(client, monkeypatch, recovery):
+    from app import password_reset
+    register(client)
+    uid = query('SELECT id FROM users')[0]['id']
+    original = account_store.create_session
+    new_password = 'changed password 2026'
+    if recovery:
+        token = 't' * 43
+        import hashlib
+        old_hash = account_store.get_password_hash(uid)
+        with account_store._cursor() as cur:
+            cur.execute('INSERT INTO password_resets (user_id,token_hash,credential_hash,created_at,expires_at) VALUES (%s,%s,%s,%s,%s)',
+                        (uid, account_auth.token_hash(token), hashlib.sha256(old_hash.encode()).hexdigest(), account_store.utcnow(), account_store.utcnow() + timedelta(minutes=30)))
+    def interleaved(*args, **kwargs):
+        if recovery:
+            password_reset.reset(token, new_password)
+        else:
+            account_store.update_password(uid, account_auth.hash_password(new_password))
+        return original(*args, **kwargs)
+    monkeypatch.setattr(account_store, 'create_session', interleaved)
+    response = login(make_client())
+    assert response.status_code == 401
+    assert query('SELECT id FROM sessions') == ()
+    monkeypatch.setattr(account_store, 'create_session', original)
+    assert login(make_client(), password=new_password).status_code == 200

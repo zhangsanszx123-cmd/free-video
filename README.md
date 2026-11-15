@@ -6,6 +6,8 @@
 
 邮箱账号：注册使用邮箱、密码与算术图形验证码，点击图片刷新；登录只需邮箱密码。账号弹窗为「登录 / 注册 / 找回密码」。配置与验收：[邮箱验证](docs/email-verification-setup.md) ｜ [找回密码](docs/password-recovery-verification.md) ｜ [当前账号方案与接口](docs/email-auth-plan.md)。
 
+账号竞态修复：旧账号查询不会覆盖新身份，首页切回下载会废弃旧 AI 登录续作，改密或找回后旧凭证不能再创建会话。实现、测试结果与人工验收见 [账号竞态修复验证](docs/account-race-verification.md)。
+
 文档：[需求分析](docs/requirements.md) ｜ [方案设计](docs/design.md) ｜ [视频转文字配置与验收](docs/video-to-text-setup.md) ｜ [账号功能验收](docs/account-verification.md) ｜ [会员额度与本机管理](docs/membership-quota-plan.md) ｜ [会员与历史任务验收](docs/membership-verification.md) ｜ [ZPAY 支付配置与验收](docs/zpay-setup.md)
 
 ## 技术栈

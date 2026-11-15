@@ -147,7 +147,7 @@ def login(req: LoginReq, request: Request, response: Response):
         raise AccountError("EMAIL_NOT_VERIFIED", "请先完成邮箱验证后再登录", 403)
     auth.clear_login_failures(key)
     token, session = auth.new_session(request)
-    store.create_session(row["id"], session)
+    store.create_session(row["id"], session, row['password_hash'])
     auth.set_cookie(response, token)
     return {"user": public_user(row), "guest_claimed_seconds": guest.claim(request, row["id"])}
 
