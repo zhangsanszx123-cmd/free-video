@@ -1,11 +1,12 @@
 <script setup>
-import { computed, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import Icon from '../components/Icon.vue'
 import JobProgress from '../components/JobProgress.vue'
 import BatchSubtitleResults from '../components/BatchSubtitleResults.vue'
 import { api, extractUrls, pollJob } from '../api.js'
+import { loadMembership, membership } from '../membership.js'
 
-const MAX = 20
+const healthMax = ref(20)
 const text = ref('')
 const kind = ref('subtitle')
 const quality = ref(1080)
@@ -16,8 +17,14 @@ const subtitleBusy = ref(false)
 let stop = null
 const submitting = ref(false)
 let disposed = false
+const healthAsrMax = ref(60)
 
 const urls = computed(() => extractUrls(text.value))
+// The plan limit comes from the account; the server's global MAX_BATCH is only the ceiling.
+const MAX = computed(() => Math.min(membership.data?.batch_max_links || healthMax.value, healthMax.value))
+const asrMax = computed(() => membership.data?.asr_max_minutes || healthAsrMax.value)
+const planName = computed(() => membership.data?.name || '当前套餐')
+const overLimit = computed(() => urls.value.length > MAX.value)
 const busy = computed(() => submitting.value || subtitleBusy.value || Boolean(job.value && !['done', 'error'].includes(job.value.status)))
 const statusStyle = {
   queued: ['clock', 'text-slate-400', '等待中'],
@@ -31,7 +38,7 @@ async function start() {
   if (busy.value) return
   error.value = ''
   if (!urls.value.length) return (error.value = '未识别到有效链接')
-  if (urls.value.length > MAX) return (error.value = `单次最多 ${MAX} 条，当前 ${urls.value.length} 条`)
+  if (overLimit.value) return (error.value = `${planName.value}单次最多 ${MAX.value} 条，当前 ${urls.value.length} 条`)
   if (kind.value === 'subtitle') {
     await subtitlePanel.value?.start(urls.value)
     return
@@ -49,6 +56,16 @@ async function start() {
     submitting.value = false
   }
 }
+onMounted(async () => {
+  try {
+    const health = await api.health()
+    if (!disposed) {
+      healthAsrMax.value = health.asr_max_minutes || 60
+      healthMax.value = health.max_batch || 20
+    }
+  } catch { /* keep the default hint */ }
+  loadMembership()
+})
 onUnmounted(() => { disposed = true; stop?.() })
 </script>
 
@@ -56,20 +73,20 @@ onUnmounted(() => { disposed = true; stop?.() })
   <section class="hero-bg min-h-[70vh] py-12 sm:py-16">
     <div class="mx-auto max-w-6xl px-4 sm:px-6">
       <div class="text-center">
-        <span class="pro-badge">PRO 功能 · 限时免费</span>
+        <span class="rounded-full bg-indigo-50 px-3 py-1 text-xs font-bold text-indigo-700 ring-1 ring-indigo-100">登录后使用</span>
         <h1 class="mt-3 text-3xl font-extrabold tracking-tight sm:text-5xl"><span class="text-grad">批量提取</span>，素材与字幕一站整理</h1>
         <p class="mx-auto mt-4 max-w-2xl text-sm leading-7 text-slate-600 sm:text-base">一次粘贴多条视频链接，自动提取视频、音频或字幕。字幕结果逐条可见，确认内容后再打包下载。</p>
         <ol class="mx-auto mt-6 flex max-w-lg items-center justify-center gap-3 text-xs font-medium text-slate-500 sm:gap-6"><li v-for="(step, i) in ['粘贴链接', '自动提取', '查看与导出']" :key="step" class="inline-flex items-center gap-2"><span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-700">{{ i + 1 }}</span>{{ step }}</li></ol>
       </div>
 
       <div class="input-shell mx-auto mt-8 max-w-4xl rounded-[1.75rem] p-4 sm:p-6">
-        <div class="mb-4 flex flex-wrap items-center justify-between gap-3"><h2 class="font-bold text-slate-900">批量提取工作台</h2><span class="text-xs text-slate-500">最多 {{ MAX }} 条 · 自动去重</span></div>
+        <div class="mb-4 flex flex-wrap items-center justify-between gap-3"><h2 class="font-bold text-slate-900">批量提取工作台</h2><span class="text-xs text-slate-500">{{ planName }}单次最多 {{ MAX }} 条 · 自动去重</span></div>
         <textarea aria-label="批量视频链接或分享文案" v-model="text" rows="7" :disabled="busy"
           placeholder="https://www.bilibili.com/video/BV1xxxx&#10;https://www.youtube.com/watch?v=xxxx&#10;【分享文案】https://b23.tv/xxxx 也可以直接粘贴"
           class="input-control w-full resize-y rounded-2xl p-4 font-mono text-sm"></textarea>
         <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
           <div class="text-sm text-slate-500">
-            已识别 <b :class="urls.length > MAX ? 'text-rose-600' : 'text-indigo-600'">{{ urls.length }}</b> / {{ MAX }} 条链接（已自动去重）
+            已识别 <b :class="overLimit ? 'text-rose-600' : 'text-indigo-600'">{{ urls.length }}</b> / {{ MAX }} 条链接（已自动去重）
           </div>
           <div class="flex flex-wrap gap-2">
             <select aria-label="下载格式" v-model="kind" class="input-control rounded-xl px-3 py-2 text-sm" :disabled="busy">
@@ -85,12 +102,12 @@ onUnmounted(() => { disposed = true; stop?.() })
             </select>
           </div>
         </div>
-        <p v-if="kind === 'subtitle'" class="mt-4 flex items-start gap-2 rounded-xl border border-amber-100 bg-amber-50/80 p-3 text-xs leading-6 text-amber-800"><Icon name="alert" :size="16" class="mt-1 shrink-0" /><span>优先提取平台字幕；无字幕时自动调用付费语音识别，消耗管理员配置的 API 预算。单条最长 60 分钟，以服务器配置为准；网络或鉴权失败不会自动转为收费识别。</span></p>
+        <p v-if="kind === 'subtitle'" class="mt-4 flex items-start gap-2 rounded-xl border border-amber-100 bg-amber-50/80 p-3 text-xs leading-6 text-amber-800"><Icon name="alert" :size="16" class="mt-1 shrink-0" /><span>优先提取平台字幕；无字幕时自动使用语音识别，并消耗你的每月语音识别额度（额度不足时会提示）。单条最长 {{ asrMax }} 分钟；网络或鉴权失败不会自动转为语音识别。</span></p>
         <button class="btn-primary mt-4 flex w-full items-center justify-center gap-2 rounded-2xl py-4 text-base font-bold" :disabled="busy || !urls.length" @click="start">
           <Icon :name="busy ? 'loader' : 'layers'" :size="18" :class="{ 'animate-spin': busy }" />
           {{ busy ? (kind === 'subtitle' ? '正在提取字幕…' : '批量下载中…') : kind === 'subtitle' ? `开始批量提取字幕（${urls.length} 条）` : `开始批量下载（${urls.length} 条）` }}
         </button>
-        <p role="alert" v-if="error" class="mt-3 flex items-center gap-2 text-sm text-rose-600"><Icon name="alert" :size="16" /> {{ error }}</p>
+        <p role="alert" v-if="error" class="mt-3 flex items-center gap-2 text-sm text-rose-600"><Icon name="alert" :size="16" /> {{ error }}<RouterLink v-if="/批量|最多/.test(error)" to="/pricing" class="font-semibold underline">升级提高上限</RouterLink></p>
 
         <JobProgress v-if="job" :job="job" class="mt-4">
           <ul v-if="job.items?.length" class="mt-4 divide-y divide-slate-100 rounded-xl border border-slate-100">

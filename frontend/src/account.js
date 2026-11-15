@@ -1,4 +1,5 @@
 import { reactive } from 'vue'
+import { ui } from './store.js'
 
 const BATCH_SUBTITLES_KEY = 'fv-batch-subtitles'
 const channel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('fv-auth') : null
@@ -76,6 +77,10 @@ export function safeRedirect(value, fallback = '/') {
   return target
 }
 
+function announceGuestUsage(seconds) {
+  if (seconds > 0) ui.notify(`游客期间下载的视频时长约 ${Math.ceil(seconds / 60)} 分钟，已计入本月语音识别额度`)
+}
+
 export const account = reactive({
   user: null,
   /** unknown: not checked yet · guest · authed · error: account service unreachable */
@@ -108,14 +113,16 @@ export const account = reactive({
   },
 
   async login(body) {
-    const { user } = await accountApi.login(body)
+    const { user, guest_claimed_seconds: claimed } = await accountApi.login(body)
     setUser(user)
+    announceGuestUsage(claimed)
     return user
   },
 
   async register(body) {
-    const { user } = await accountApi.register(body)
+    const { user, guest_claimed_seconds: claimed } = await accountApi.register(body)
     setUser(user)
+    announceGuestUsage(claimed)
     return user
   },
 

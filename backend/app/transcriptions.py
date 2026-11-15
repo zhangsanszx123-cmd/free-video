@@ -40,6 +40,16 @@ def result_payload(cues, source, language=None):
             "cues": len(cues), "source": source, "language": language, "srt": to_srt(cues)}
 
 
+def max_seconds(uid):
+    """Longest single recognition for this account's plan; the global setting stays a hard ceiling."""
+    plan = membership.limits(uid) if uid is not None else None
+    return min(plan['asr_max_minutes'] * 60, config.ASR_MAX_DURATION) if plan else config.ASR_MAX_DURATION
+
+
+def too_long(limit):
+    return TranscriptionError("AUDIO_TOO_LONG", f"音频超过 {limit // 60} 分钟上限（当前套餐单条最长 {limit // 60} 分钟，可在定价页升级会员延长）")
+
+
 def probe_audio(path: Path):
     try:
         proc = subprocess.run([config.FFPROBE_BINARY, "-v", "error", "-show_entries",
@@ -300,10 +310,13 @@ class TranscriptionManager:
                 self.keys[canonical_key] = job.id
                 membership.alias_key(job, canonical_key)
             asr.require_enabled()
-            if info.get("duration") and info["duration"] > config.ASR_MAX_DURATION:
-                raise TranscriptionError("AUDIO_TOO_LONG", f"音频超过 {config.ASR_MAX_DURATION // 60} 分钟上限")
+            limit = max_seconds(uid)
+            if info.get("duration") and info["duration"] > limit:
+                raise too_long(limit)
             self._update(job, title=info.get("title") or job.title, stage="audio", message="正在获取视频音轨…")
             path, duration = acquire_audio(canonical, job.directory, lambda **f: self._update(job, **f))
+            if duration > limit:
+                raise too_long(limit)
             membership.persist(job, {**info, 'duration': duration})
             if uid is not None:
                 membership.reserve(uid, job.id, duration, canonical_key)

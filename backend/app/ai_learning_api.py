@@ -14,8 +14,8 @@ from fastapi.responses import JSONResponse
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from pydantic import BaseModel, Field
 
-from . import ai, ai_learning, asr, config, downloader, transcription_auth
-from .errors import EmptySubtitles, NoSubtitles, TranscriptionError, VideoError
+from . import ai, ai_learning, asr, config, downloader, transcription_auth, usage
+from .errors import AccountError, EmptySubtitles, NoSubtitles, TranscriptionError, VideoError
 from .learning_text import compact_from_cues, compact_from_timed_text
 from .transcriptions import read_subtitles
 
@@ -62,6 +62,10 @@ class LearnChatReq(BaseModel):
     transcription_id: str | None = Field(default=None, max_length=64)
     title: str | None = Field(default=None, max_length=300)
     lang: str | None = Field(default=None, max_length=32)
+
+
+def _uid(request: Request) -> int:
+    return request.state.account_user['id']
 
 
 def _check_ai_enabled():
@@ -175,7 +179,10 @@ def resolve_transcript(
     dependencies=[Depends(_check_ai_enabled), Depends(_check_rate_limit)],
 )
 def learn_summary(req: LearnSummaryReq, request: Request) -> Iterable[ServerSentEvent]:
+    ticket = None
+    keep = False
     try:
+        ticket = usage.ai_begin(_uid(request), req.url, req.title or "")
         if not (req.transcript and req.transcript.strip()):
             yield ServerSentEvent(event="status", data="正在获取视频字幕文稿…")
         resolved_title, compacted, source = resolve_transcript(
@@ -198,6 +205,7 @@ def learn_summary(req: LearnSummaryReq, request: Request) -> Iterable[ServerSent
             },
         )
         for kind, value in ai_learning.summarize_events(resolved_title, compacted, mode=req.mode):
+            keep = keep or kind == "delta"
             yield ServerSentEvent(event=kind, data=value)
         yield ServerSentEvent(event="done", data=True)
     except NeedAsrConfirmation as e:
@@ -205,17 +213,22 @@ def learn_summary(req: LearnSummaryReq, request: Request) -> Iterable[ServerSent
             event="need_asr",
             data={"message": e.message, "asr_enabled": asr.enabled()},
         )
-    except TranscriptionError as e:
+    except (AccountError, TranscriptionError) as e:
         yield ServerSentEvent(event="error", data=str(e))
     except (VideoError, ai.AIDisabled) as e:
         yield ServerSentEvent(event="error", data=str(e))
     except Exception as e:  # noqa: BLE001
         log.exception("learn_summary failed")
         yield ServerSentEvent(event="error", data=f"AI 总结生成失败：{e}"[:200])
+    finally:
+        if not keep:
+            usage.ai_release(ticket)
 
 
 @router.post("/mindmap", dependencies=[Depends(_check_ai_enabled), Depends(_check_rate_limit)])
 def learn_mindmap(req: LearnMindmapReq, request: Request):
+    ticket = usage.ai_begin(_uid(request), req.url, req.title or "")
+    keep = False
     try:
         resolved_title = req.title or "视频知识导图"
         compacted = ""
@@ -237,6 +250,7 @@ def learn_mindmap(req: LearnMindmapReq, request: Request):
             transcript=compacted,
             summary=req.summary or "",
         )
+        keep = True
         return {"title": resolved_title, "markdown": markdown, "source": source}
     except NeedAsrConfirmation as e:
         return JSONResponse(
@@ -250,6 +264,9 @@ def learn_mindmap(req: LearnMindmapReq, request: Request):
     except Exception as e:  # noqa: BLE001
         log.exception("learn_mindmap failed")
         raise HTTPException(status_code=500, detail="思维导图生成失败，请稍后重试") from e
+    finally:
+        if not keep:
+            usage.ai_release(ticket)
 
 
 @router.post(
@@ -258,7 +275,12 @@ def learn_mindmap(req: LearnMindmapReq, request: Request):
     dependencies=[Depends(_check_ai_enabled), Depends(_check_rate_limit)],
 )
 def learn_chat(req: LearnChatReq, request: Request) -> Iterable[ServerSentEvent]:
+    ticket = None
+    chat_token = None
+    keep = False
     try:
+        ticket = usage.ai_begin(_uid(request), req.url, req.title or "")
+        chat_token = usage.chat_begin(_uid(request))
         resolved_title, compacted, _ = resolve_transcript(
             request,
             url=req.url,
@@ -269,6 +291,7 @@ def learn_chat(req: LearnChatReq, request: Request) -> Iterable[ServerSentEvent]
         )
         turns = [{"role": m.role, "content": m.content} for m in req.messages]
         for delta in ai_learning.chat_stream(resolved_title, compacted, turns):
+            keep = True
             yield ServerSentEvent(event="delta", data=delta)
         yield ServerSentEvent(event="done", data=True)
     except NeedAsrConfirmation as e:
@@ -276,10 +299,14 @@ def learn_chat(req: LearnChatReq, request: Request) -> Iterable[ServerSentEvent]
             event="need_asr",
             data={"message": e.message, "asr_enabled": asr.enabled()},
         )
-    except TranscriptionError as e:
+    except (AccountError, TranscriptionError) as e:
         yield ServerSentEvent(event="error", data=str(e))
     except (VideoError, ai.AIDisabled) as e:
         yield ServerSentEvent(event="error", data=str(e))
     except Exception as e:  # noqa: BLE001
         log.exception("learn_chat failed")
         yield ServerSentEvent(event="error", data=f"AI 追问失败：{e}"[:200])
+    finally:
+        if not keep:
+            usage.ai_release(ticket)
+            usage.chat_release(chat_token)

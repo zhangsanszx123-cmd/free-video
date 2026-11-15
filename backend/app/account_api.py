@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from . import account_auth as auth
 from . import account_store as store
-from . import config
+from . import config, guest
 from .errors import AccountError
 
 
@@ -72,7 +72,7 @@ def register(req: RegisterReq, request: Request, response: Response):
     token, session = auth.new_session(request)
     user = store.create_user(req.username, key, nickname, auth.hash_password(req.password), session)
     auth.set_cookie(response, token)
-    return {"user": public_user(user)}
+    return {"user": public_user(user), "guest_claimed_seconds": guest.claim(request, user["id"])}
 
 
 @router.post("/api/auth/login")
@@ -92,7 +92,7 @@ def login(req: LoginReq, request: Request, response: Response):
     token, session = auth.new_session(request)
     store.create_session(row["id"], session)
     auth.set_cookie(response, token)
-    return {"user": public_user(row)}
+    return {"user": public_user(row), "guest_claimed_seconds": guest.claim(request, row["id"])}
 
 
 @router.post("/api/auth/logout")

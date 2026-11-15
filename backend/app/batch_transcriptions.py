@@ -38,10 +38,14 @@ class BatchTranscriptionManager:
                 if job.finished_at and time.time() - job.finished_at > config.FILE_TTL_SECONDS:
                     del self.jobs[key]
 
-    def submit(self, owner, texts):
+    def submit(self, owner, texts, max_links=None, plan_name=None):
         urls = tasks.dedupe_urls(texts)
-        if not urls or len(urls) > config.MAX_BATCH:
-            raise TranscriptionError('INVALID_BATCH', f'请输入 1～{config.MAX_BATCH} 条有效链接')
+        cap = min(max_links or config.MAX_BATCH, config.MAX_BATCH)
+        if urls and len(urls) > cap and plan_name:
+            raise TranscriptionError('BATCH_LIMIT', f'{plan_name}单次最多批量处理 {cap} 条链接，当前 {len(urls)} 条，'
+                                     '可在定价页升级会员提高上限', status=403)
+        if not urls or len(urls) > cap:
+            raise TranscriptionError('INVALID_BATCH', f'请输入 1～{cap} 条有效链接')
         self.cleanup()
         with self.lock:
             for job in self.jobs.values():

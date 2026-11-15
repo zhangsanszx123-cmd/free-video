@@ -7,6 +7,7 @@ import AiLearningPanel from '../learning/AiLearningPanel.vue'
 import { extractBilibiliBvid, extractYoutubeId, formatTs, platformTimeUrl } from '../learning/learnApi.js'
 import { api, fileUrl, fmt, pollJob, triggerDownload } from '../api.js'
 import { ui } from '../store.js'
+import { openAuth } from '../account.js'
 
 const props = defineProps({
   info: { type: Object, default: null },
@@ -58,6 +59,8 @@ const imageList = computed(() => {
   if (!imgs.length && thumb.value) return [thumb.value]
   return imgs
 })
+
+const coverOnly = computed(() => !(props.info?.images || []).some(Boolean))
 
 const contentText = computed(() => {
   if (!props.info) return ''
@@ -232,6 +235,7 @@ async function startVideoDownload() {
     if (current !== requestVersion) return
     error.value = e.message
     notify(e.message, 'error')
+    if (e.code === 'GUEST_LIMIT') openAuth({ notice: e.message })
   } finally {
     if (current === requestVersion) videoSubmitting.value = false
   }
@@ -261,6 +265,7 @@ async function startAudioDownload() {
     if (current !== requestVersion) return
     error.value = e.message
     notify(e.message, 'error')
+    if (e.code === 'GUEST_LIMIT') openAuth({ notice: e.message })
   } finally {
     if (current === requestVersion) audioSubmitting.value = false
   }
@@ -544,20 +549,12 @@ onUnmounted(() => {
                   </select>
                   <button
                     type="button"
-                    class="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 shadow-sm transition hover:border-gray-300 hover:bg-gray-50 hover:text-gray-900 sm:px-4 sm:text-sm"
-                    @click="copyVideoLink"
-                  >
-                    <Icon name="copy" :size="15" />
-                    <span>复制全部链接</span>
-                  </button>
-                  <button
-                    type="button"
                     :disabled="videoDownloading"
                     class="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 shadow-sm transition hover:border-gray-300 hover:bg-gray-50 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-50 sm:px-4 sm:text-sm"
                     @click="startVideoDownload"
                   >
                     <Icon name="download" :size="15" :class="{ 'animate-pulse': videoDownloading }" />
-                    <span>{{ videoDownloading ? `下载中 ${Math.round(videoJob?.progress || 0)}%` : '下载高清视频' }}</span>
+                    <span>{{ videoDownloading ? (videoJob?.status === 'processing' ? '合并中…' : `下载中 ${Math.round(videoJob?.progress || 0)}%`) : '下载高清视频' }}</span>
                   </button>
                 </div>
               </div>
@@ -580,7 +577,6 @@ onUnmounted(() => {
                     :src="bilibiliIframeSrc"
                     class="mb-2 aspect-video w-full rounded-lg border-0 bg-black"
                     style="max-height: 160px"
-                    allowfullscreen
                     allow="autoplay; fullscreen"
                     referrerpolicy="no-referrer"
                     title="Bilibili 视频预览"
@@ -590,8 +586,7 @@ onUnmounted(() => {
                     :src="youtubeIframeSrc"
                     class="mb-2 aspect-video w-full rounded-lg border-0 bg-black"
                     style="max-height: 160px"
-                    allowfullscreen
-                    allow="autoplay; encrypted-media"
+                    allow="autoplay; encrypted-media; fullscreen"
                     title="YouTube 视频预览"
                   ></iframe>
                   <video
@@ -605,17 +600,6 @@ onUnmounted(() => {
                     referrerpolicy="no-referrer"
                   ></video>
                   <div class="mt-2 flex gap-2">
-                    <button
-                      type="button"
-                      :disabled="videoDownloading"
-                      class="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-center text-sm font-medium text-gray-700 shadow-sm transition hover:border-gray-300 hover:bg-gray-50 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-60"
-                      @click="startVideoDownload"
-                    >
-                      <Icon name="download" :size="15" :class="{ 'animate-pulse': videoDownloading }" />
-                      <span>
-                        {{ videoDownloading ? (videoJob?.status === 'processing' ? '合并中…' : `下载中 ${Math.round(videoJob?.progress || 0)}%`) : '下载视频' }}
-                      </span>
-                    </button>
                     <button
                       type="button"
                       class="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-center text-sm font-medium text-gray-700 shadow-sm transition hover:border-gray-300 hover:bg-gray-50 hover:text-gray-900"
@@ -649,6 +633,7 @@ onUnmounted(() => {
                   <div class="mr-3 inline-block h-7 w-7 animate-spin rounded-full border-b-2 border-blue-600"></div>
                   <span class="font-medium text-blue-600">音频内容提取中...</span>
                 </div>
+                <p v-else-if="!audioPreviewUrl" class="py-4 text-center text-sm text-gray-500">暂无可预览的音频，点击右上角「下载音频」提取 MP3。</p>
                 <audio
                   v-else
                   :src="audioPreviewUrl"
@@ -673,8 +658,8 @@ onUnmounted(() => {
             <div v-if="imageList.length" class="rounded-2xl border border-gray-200 bg-white p-3 shadow-sm sm:p-4">
               <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h4 class="text-base font-bold text-gray-900 sm:text-lg">图片内容</h4>
-                  <p class="mt-0.5 text-sm text-gray-500">共 {{ imageList.length }} 张图片素材</p>
+                  <h4 class="text-base font-bold text-gray-900 sm:text-lg">{{ coverOnly ? '封面图片' : '图片内容' }}</h4>
+                  <p class="mt-0.5 text-sm text-gray-500">{{ coverOnly ? '视频封面，可复制或下载' : `共 ${imageList.length} 张图片素材` }}</p>
                 </div>
                 <div class="flex flex-wrap gap-2">
                   <button
@@ -683,7 +668,7 @@ onUnmounted(() => {
                     @click="copyAllImageLinks"
                   >
                     <Icon name="copy" :size="15" />
-                    <span>复制全部链接</span>
+                    <span>{{ coverOnly ? '复制封面链接' : '复制全部链接' }}</span>
                   </button>
                   <button
                     type="button"
@@ -691,7 +676,7 @@ onUnmounted(() => {
                     @click="downloadAllImages"
                   >
                     <Icon name="download" :size="15" />
-                    <span>批量下载图片</span>
+                    <span>{{ coverOnly ? '下载封面' : '批量下载图片' }}</span>
                   </button>
                   <RouterLink
                     :to="{ path: '/ai', query: { url: info.url } }"
@@ -758,7 +743,6 @@ onUnmounted(() => {
                 :key="bilibiliIframeSrc"
                 :src="bilibiliIframeSrc"
                 class="aspect-video w-full rounded-[14px] border-0 bg-slate-950"
-                allowfullscreen
                 allow="autoplay; fullscreen"
                 referrerpolicy="no-referrer"
                 title="Bilibili 同屏预览"
@@ -768,8 +752,7 @@ onUnmounted(() => {
                 :key="youtubeIframeSrc"
                 :src="youtubeIframeSrc"
                 class="aspect-video w-full rounded-[14px] border-0 bg-slate-950"
-                allowfullscreen
-                allow="autoplay; encrypted-media"
+                allow="autoplay; encrypted-media; fullscreen"
                 title="YouTube 同屏预览"
               ></iframe>
               <video

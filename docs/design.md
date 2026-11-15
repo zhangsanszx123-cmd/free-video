@@ -1,5 +1,39 @@
 # FreeVideo 方案设计文档
 
+## 2026-11-15 游客额度架构
+
+- `guest.py`：表 `guest_links(subject, link_key, raw_key, duration_seconds, claimed_by, ...)`，`subject` 为 `c:<签名 Cookie id>` 或 `i:<IP>`。Cookie `freevideo_guest`（HttpOnly、SameSite=Lax、Path=/api、10 年，HMAC 复用 `transcription_auth` 的密钥）仅在首次成功解析时下发，伪造或篡改签名视为无 Cookie。
+- `/api/parse`（游客）：`begin` 在解析前检查——对 Cookie 与 IP 两个主体，若该链接未记录且主体已有 2 个链接则 403 `GUEST_LIMIT`；解析成功后 `record` 在 MySQL `GET_LOCK` 保护下写入规范化链接及时长，防并发越限。`link_key` 为规范 URL 摘要、`raw_key` 为用户提交 URL 摘要，两者任一命中都视为已知链接。
+- `/api/download`（游客）：`require_known` 要求链接已被该游客（Cookie 或 IP）解析过，防止跳过解析直调下载。登录用户路径不变。`/api/subtitles`、`/api/transcript`、`/api/transcriptions`（POST）对游客统一返回 401 `AUTH_REQUIRED`；批量与 AI 原本已强制登录。
+- 并入额度：`account_api.register/login` 成功后调用 `guest.claim`，仅处理 Cookie 主体且 `claimed_by IS NULL` 的行：在用户行锁内把时长合计加到当前周期 `used_seconds`（上限为剩余额度），再标记已认领；响应带 `guest_claimed_seconds`，前端 `account.js` 弹出提示。认领失败只记日志，不影响登录。
+- 前端：`Home.parse` 遇到 `GUEST_LIMIT` 自动 `openAuth`，登录后继续解析；`ResultCard` 下载遇到同码也弹登录窗；`TranscriptPanel` 对游客只显示登录提示（不请求字幕），登录后通过 `account.loggedIn` 监听自动开始。首页徽标、FAQ、定价 FAQ、移动升级条、升级弹窗同步为新规则。
+- 测试：`tests/test_guest.py`（8 项：2 个名额、清 Cookie、不同 IP 独立、先解析才能下载及其它功能 401、登录用户不受限、认领一次、认领封顶、伪造 Cookie）；`test_membership.py` 中游客字幕用例改为 401；`ui_regression.py` 增加游客登录提示与名额用完弹窗；`membership_ui.py` 的游客识别用例改为先点登录提示。
+
+
+## 2026-11-15 套餐使用上限架构
+
+- **配置**：`membership_plans` 增加 `ai_monthly_limit / batch_max_links / asr_max_minutes / chat_daily_limit`。`account_store.init_schema` 在列不存在时 ALTER 添加并按 `DEFAULT_LIMITS` 回填（仅首次迁移，不覆盖已调整的数值）；`membership.seed` 的新库默认值同源。上限按当前套餐代码实时读取（`membership.limits(user_id)`），不像时长额度那样快照到 `user_memberships`。
+- **AI 计次**（`usage.py`）：表 `ai_usage_videos(user_id, period, video_key)`，`period` 与 `user_quota_periods` 同键，`video_key` 为 URL 的 sha256；`ai_begin` 在用户行锁内判断，已计过的视频直接放行，否则按套餐上限计数后插入，超限抛 `AccountError(AI_QUOTA_EXCEEDED, 403)`；`ai_release` 在未产生任何输出时删除本次新增行。`ai_learning_api` 的 `/summary`、`/chat` 在首个 delta 出现后才算已消费（`keep`），`/mindmap` 在成功返回后保留；旧 `/api/ai/summary`、`/api/ai/translate` 同样接入（翻译作业失败时释放）。
+- **追问每日限额**：表 `ai_chat_daily(user_id, day, used)`，`day` 为北京时间日期，`chat_begin` 原子递增并校验，失败时 `chat_release` 退回。追问先过视频计次、再过每日限额，任一失败都释放已占用部分。
+- **批量**：`main.batch_cap(user_id)` 返回 `min(套餐条数, MAX_BATCH)`；`/api/batch` 超限返回 403 `BATCH_LIMIT`，`BatchTranscriptionManager.submit(owner, texts, max_links, plan_name)` 超限抛同码 `TranscriptionError`；无登录用户信息的旧测试路径回退到 `MAX_BATCH`。
+- **识别时长**：`transcriptions.max_seconds(uid)` 取 `min(套餐分钟*60, ASR_MAX_DURATION)`；`_run` 在解析时长后和音轨获取后各校验，抛 `AUDIO_TOO_LONG`（提示套餐上限）。`probe_audio` 仍使用全局硬上限，保持原测试语义。
+- **摘要接口**：`membership.summary` 增加 `ai_limit / ai_used / chat_daily_limit / chat_used_today / batch_max_links / asr_max_minutes`；`/api/plans` 因 `SELECT *` 自动带上四个上限列。
+- **前端**：`QuotaCard` 展示本期 AI 视频、今日追问、批量与识别时长；`Pricing` 套餐卡与对比表读取 `plan.*` 上限；`Batch` 的条数上限取 `membership.data.batch_max_links`（受 `/api/health.max_batch` 限制），超限在提交前提示并链接定价页；`AiLearningPanel` / `TranscriptPanel` / `Batch` 的识别时长提示优先用账号套餐值；AI 面板在每次生成结束后刷新额度。
+- **测试**：`tests/test_limits.py`（10 项，真实 MySQL 测试库，含迁移回填、计次/释放/重置周期、追问日切、批量与时长）；`ui_regression.py` 增加定价/额度卡展示、批量超限拦截、AI 超限提示。`account_ui.py` 的设备列表选择器改为最近的 `section`，避免统计额度卡新增的 `li`。
+
+
+## 2026-11-15 前端审查与优化实现
+
+- `NavBar.vue`：移除 PRO 角标、桌面右上角「升级 Pro」按钮、手机菜单底部「查看会员套餐」按钮与下拉中重复的「个人中心」项；Esc 同时关闭桌面下拉与手机菜单并把焦点还给触发按钮；点击导航外区域关闭手机菜单。外部点击判断使用 `event.composedPath()`，因为菜单开关会替换图标节点，`contains(event.target)` 会把导航内点击误判为外部。
+- `ResultCard.vue`：头部下载按钮负责「合并中 / 下载中」状态，卡片内只留「复制链接」；`coverOnly` 计算属性区分真实图集与封面兜底；无音频预览地址时显示提示；移除与 `allow="fullscreen"` 冲突的 `allowfullscreen`。
+- `AiTools.vue` / `api.js`：`streamSSE` 增加可选 `signal`；总结加提交锁、卸载中止、复制失败提示；Tab 增加 `tablist/tab/aria-selected`。
+- `Home.vue`：模式选项卡增加 `id` 与 `aria-controls`，结果区为 `role="tabpanel"`；占位符缩短避免手机端截断；去掉 PRO 徽标后手机端两个选项卡同行。
+- `Batch.vue` / `AiLearningPanel.vue`：挂载时读取 `/api/health.asr_max_minutes`，不再写死 60 分钟。
+- `router.js` + `pages/NotFound.vue`：未知路径渲染 404 页（`notFound` 路由名，标题已登记）。
+- `Account.vue`：默认分区为 `membership`（`?section=` 仍可指定），分区说明移入对应卡片内。`History.vue` 改用 `hero-bg`。
+- 删除 `style.css` 的 `.pro-badge`；`data.js` 的 `pro` 字段与平台画质表述同步修正。
+- 测试：`ui_regression.py` 新增文案规则、AI 复制失败、Esc 与账号菜单、结果卡去重、404、个人中心默认分区共 6 项（含手机菜单开启后保持可见）；`account_ui.py` 依赖默认「基本资料」的用例改为 `?section=profile`。
+
 ## 2026-11-13 识别异常的展示与诊断
 
 - 修复 `asr_flash` 完整性判断：`usage.duration` 是句尾报告的处理用量，不应要求等于本地音轨时长；HTTP 流正常读完、末句 final、累计文本与最终句/词时间轴一致后返回成功。尾部仅含用量的事件不覆盖末句状态；读取异常、未结束句和空响应仍失败并保留原预占保护。依据：[官方 Flash HTTP API](https://help.aliyun.com/en/model-studio/fun-asr-flash-recorded-speech-recognition-http-api)。
@@ -273,7 +307,7 @@ B 站匿名字幕兜底（`bilibili_subs.py`）：yt-dlp 报告登录字幕警�
 |---|---|
 | `.hero-bg` | `#f8fbff` + 44px 网格线 + 蓝/翠绿/靛紫三层渐变光晕 |
 | `.text-grad` / `.btn-primary` | 主渐变 `#2563eb → #6366f1 → #8b5cf6`；按钮 hover 上浮 1px |
-| `.text-gold` / `.btn-gold` / `.pro-badge` | 金橙色系，用于付费/PRO 元素（与主色区分，形成转化焦点） |
+| `.text-gold` / `.btn-gold` | 金橙色系，用于会员/付费元素（与主色区分，形成转化焦点） |
 | `.glass-card` / `.input-shell` / `.input-control` | 毛玻璃卡片、1.75rem 圆角输入外壳、聚焦靛蓝光环 |
 | `.progress-stripes` | 进行中条纹动画 |
 | `.prose-ai` | AI Markdown 排版 |

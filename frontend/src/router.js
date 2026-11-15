@@ -13,6 +13,7 @@ const titles = {
   account: '个人中心 - FreeVideo',
   history: '任务记录 - FreeVideo',
   payResult: '支付结果 - FreeVideo',
+  notFound: '页面不存在 - FreeVideo',
 }
 
 const router = createRouter({
@@ -28,7 +29,7 @@ const router = createRouter({
     { path: '/account', name: 'account', component: () => import('./pages/Account.vue'), meta: { requiresAuth: true } },
     { path: '/history', name: 'history', component: () => import('./pages/History.vue'), meta: { requiresAuth: true } },
     { path: '/pay/result', name: 'payResult', component: () => import('./pages/PayResult.vue'), meta: { requiresAuth: true } },
-    { path: '/:pathMatch(.*)*', redirect: '/' },
+    { path: '/:pathMatch(.*)*', name: 'notFound', component: () => import('./pages/NotFound.vue') },
   ],
   scrollBehavior: (to) => (to.hash ? { el: to.hash, top: 80, behavior: 'smooth' } : { top: 0 }),
 })

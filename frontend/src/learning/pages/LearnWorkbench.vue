@@ -143,7 +143,7 @@ onUnmounted(() => clearTimeout(toastTimer))
 
       <!-- Compact Header + URL Input -->
       <div class="mx-auto max-w-4xl text-center">
-        <span class="pro-badge">AI 学习工作台 · PRO</span>
+        <span class="rounded-full bg-indigo-50 px-3 py-1 text-xs font-bold text-indigo-700 ring-1 ring-indigo-100">AI 学习工作台 · 登录后使用</span>
         <h1 class="mt-2.5 text-2xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">
           长视频 <span class="text-grad">AI 精读 · 思维导图 · 深度追问</span>
         </h1>
@@ -204,10 +204,10 @@ onUnmounted(() => clearTimeout(toastTimer))
               <video v-if="info.direct?.url" ref="native-video" :src="info.direct.url" :poster="thumbUrl"
                 controls preload="metadata" referrerpolicy="no-referrer" class="h-full w-full object-contain"></video>
               <iframe v-else-if="bilibiliIframeSrc" :key="bilibiliIframeSrc" :src="bilibiliIframeSrc"
-                class="h-full w-full border-0" allowfullscreen allow="autoplay; fullscreen"
+                class="h-full w-full border-0" allow="autoplay; fullscreen"
                 referrerpolicy="no-referrer" title="Bilibili 视频播放器"></iframe>
               <iframe v-else-if="youtubeIframeSrc" :key="youtubeIframeSrc" :src="youtubeIframeSrc"
-                class="h-full w-full border-0" allowfullscreen allow="autoplay; encrypted-media"
+                class="h-full w-full border-0" allow="autoplay; encrypted-media; fullscreen"
                 title="YouTube 视频播放器"></iframe>
               <div v-else class="relative flex h-full w-full items-center justify-center">
                 <img v-if="thumbUrl" :src="thumbUrl" :alt="info.title" referrerpolicy="no-referrer" class="h-full w-full object-cover opacity-70" />

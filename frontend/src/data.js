@@ -17,7 +17,7 @@ export const platforms = [
 export const platformTable = [
   { name: '抖音', video: '原画 · 无水印', audio: true, sub: false, note: '支持分享口令 / v.douyin.com 短链；暂不支持图文' },
   { name: 'B站', video: '最高 1080P', audio: true, sub: true, note: '支持 b23.tv 短链' },
-  { name: 'YouTube', video: '最高 8K', audio: true, sub: true, note: '服务器需可访问海外网络' },
+  { name: 'YouTube', video: '4K 及以上（以视频源为准）', audio: true, sub: true, note: '服务器需可访问海外网络' },
   { name: 'TikTok', video: '原画', audio: true, sub: false, note: '' },
   { name: 'Twitter/X', video: '原画', audio: true, sub: false, note: '仅公开推文' },
   { name: '微博', video: '最高 1080P', audio: true, sub: false, note: '' },
@@ -26,12 +26,12 @@ export const platformTable = [
 ]
 
 export const features = [
-  { icon: 'globe', title: '1800+ 平台通吃', desc: '基于 GitHub 15 万 Star 的 yt-dlp，国内外主流视频站、社交平台、播客一个网址全搞定。', pro: false },
-  { icon: 'crown', title: '4K / 8K 原画质', desc: '自动挑选最高码率的音视频流并无损合并为 MP4，画质比平台自带下载更高。', pro: true },
-  { icon: 'music', title: '一键提取 MP3', desc: '视频秒变 192kbps 高品质 MP3，课程、播客、BGM 随身听。', pro: false },
-  { icon: 'layers', title: '批量下载打包', desc: '一次粘贴 20 条链接，自动去重、后台逐条下载、打包成 ZIP 一次带走。', pro: true },
-  { icon: 'sparkles', title: 'AI 视频总结', desc: '1 小时的视频 30 秒读完：核心要点、时间轴大纲、金句摘录自动生成。', pro: true },
-  { icon: 'translate', title: 'AI 双语字幕', desc: '外语字幕一键翻译为中英双语 SRT，学英语、看海外课程利器。', pro: true },
+  { icon: 'globe', title: '1800+ 平台通吃', desc: '基于 GitHub 15 万 Star 的 yt-dlp，国内外主流视频站、社交平台、播客一个网址全搞定。' },
+  { icon: 'crown', title: '4K+ 原画质', desc: '自动挑选平台提供的最高码率音视频流并无损合并为 MP4，不做二次压缩；实际画质以视频源为准。' },
+  { icon: 'music', title: '一键提取 MP3', desc: '视频秒变 192kbps 高品质 MP3，课程、播客、BGM 随身听。' },
+  { icon: 'layers', title: '批量提取打包', desc: '登录后一次粘贴最多 20 条链接，自动去重、后台逐条处理，视频、音频或字幕打包成 ZIP 一次带走。' },
+  { icon: 'sparkles', title: 'AI 视频总结', desc: '登录后使用：长视频快速读完，核心要点、时间轴大纲、思维导图与追问自动生成。' },
+  { icon: 'translate', title: 'AI 双语字幕', desc: '登录后使用：外语字幕一键翻译为中外双语 SRT，学英语、看海外课程利器。' },
 ]
 
 export const steps = [
@@ -49,9 +49,10 @@ export const scenarios = [
 
 export const faqs = [
   { q: '支持哪些平台？手机可以用吗？', a: '底层使用开源项目 yt-dlp，支持 B站、YouTube、TikTok、X、微博、Vimeo 等 1800+ 站点。网站针对手机做了适配，手机浏览器打开即可使用，无需安装 App。' },
+  { q: '不登录可以用吗？', a: '游客可免费解析并下载 2 个视频（含 MP3）；字幕提取、语音识别、批量提取、AI 总结都需要登录。这 2 个视频的时长会在你首次登录或注册后，计入当月的语音识别额度。登录后下载不限次数。' },
   { q: '为什么有些链接解析失败？', a: '常见原因：内容需要登录或付费（本站不使用任何账号 Cookie，只支持公开内容）、链接已失效、平台有地区限制，或平台接口变动。可稍后重试或换一个链接。' },
   { q: '下载的视频有水印吗？画质会压缩吗？', a: '我们直接获取平台的原始音视频流并无损合并，不做二次压缩；是否带水印取决于平台源文件本身。' },
   { q: '下载文件与转录记录保存多久？', a: '下载文件仅用于中转，30 分钟后自动删除。登录用户的字幕提取、语音识别任务记录及转录文本保存 30 天，可在历史任务中查看和导出。' },
-  { q: 'AI 总结是怎么实现的？', a: '读取视频字幕（平台字幕或自动字幕）后交给大模型（DeepSeek）生成要点与大纲。没有字幕的视频暂不支持 AI 总结。' },
+  { q: 'AI 总结是怎么实现的？', a: '登录后即可使用。读取视频字幕（平台字幕或自动字幕）后交给大模型（DeepSeek）生成要点、大纲与思维导图。视频没有字幕时，可在你确认后先用语音识别生成文稿再总结，识别会消耗你的每月语音识别额度。' },
   { q: '可以商用吗？有版权问题吗？', a: '本站仅供个人学习研究使用。请尊重原作者版权，未经授权不得用于商业用途或二次传播。频繁下载可能触发平台风控，请合理使用。' },
 ]

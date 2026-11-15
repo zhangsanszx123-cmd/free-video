@@ -63,7 +63,7 @@ function onSuccess() {
             <h2 id="auth-title" class="text-xl font-extrabold tracking-tight text-slate-950">
               {{ authModal.tab === 'login' ? '欢迎回来' : '创建账号' }}
             </h2>
-            <p class="text-xs text-slate-500">{{ authModal.tab === 'login' ? '登录后使用批量提取、AI 总结与个人中心' : '仅需用户名和密码，注册后自动登录' }}</p>
+            <p class="text-xs text-slate-500">{{ authModal.tab === 'login' ? '登录后可提取字幕、语音识别、批量提取与 AI 总结' : '仅需用户名和密码，注册后自动登录' }}</p>
           </div>
         </div>
         <button type="button" class="-mr-2 -mt-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="关闭登录窗口" @click="closeAuth">

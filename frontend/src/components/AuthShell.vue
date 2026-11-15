@@ -18,7 +18,7 @@ const perks = [
         <h1 class="text-4xl font-extrabold leading-tight tracking-tight text-slate-950">
           登录 <span class="text-grad">FreeVideo</span><br />解锁批量提取与 AI 总结
         </h1>
-        <p class="mt-4 text-slate-600">演示版注册免费，登录后即可使用全部 PRO 功能。</p>
+        <p class="mt-4 text-slate-600">注册免费，登录后即可使用批量提取、AI 总结与每月语音识别额度。</p>
         <ul class="mt-8 space-y-4">
           <li v-for="p in perks" :key="p.text" class="flex items-center gap-3 text-slate-700">
             <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/80 text-indigo-600 shadow-sm ring-1 ring-indigo-100">

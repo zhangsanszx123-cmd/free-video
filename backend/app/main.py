@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import account_store, ai, asr, config, downloader, tasks, transcription_auth, membership, payments
+from . import account_store, ai, asr, config, downloader, guest, tasks, transcription_auth, membership, payments, usage
 from .account_auth import require_user, current_user
 from .errors import AccountError, EmptySubtitles, NoSubtitles, TranscriptionError
 from .transcriptions import TranscriptionManager, read_subtitles, result_payload
@@ -100,13 +100,27 @@ class BatchTranscriptionReq(BaseModel):
     allow_asr: Literal[True]
 
 
+def batch_cap(user_id):
+    """(links allowed per batch for the user's plan, plan name); the global MAX_BATCH stays a hard ceiling."""
+    plan = membership.limits(user_id)
+    if not plan:
+        return config.MAX_BATCH, None
+    return min(plan['batch_max_links'], config.MAX_BATCH), plan['name']
+
+
+def batch_limit_message(name, cap, count=None):
+    seen = f'，当前 {count} 条' if count else ''
+    return f'{name}单次最多批量处理 {cap} 条链接{seen}，可在定价页升级会员提高上限'
+
+
 @app.post('/api/batch-transcriptions', dependencies=[Depends(require_user)])
 def create_batch_transcription(req: BatchTranscriptionReq, request: Request, response: Response, user: dict = Depends(require_user)):
     transcription_auth.check_origin(request)
     owner = f"user:{user['id']}"
     transcription_auth.rate_limit(request, owner)
     response.headers['Cache-Control'] = 'no-store'
-    return batch_transcription_manager.submit(owner, req.urls)
+    cap, name = batch_cap(user['id'])
+    return batch_transcription_manager.submit(owner, req.urls, cap, name)
 
 
 @app.get('/api/batch-transcriptions/{job_id}', dependencies=[Depends(require_user)])
@@ -138,34 +152,45 @@ def health():
 
 
 @app.post("/api/parse")
-def parse(req: UrlReq):
+def parse(req: UrlReq, request: Request, response: Response, user: dict | None = Depends(current_user)):
     try:
-        return downloader.parse(req.url)
+        raw = None if user else guest.begin(request, req.url)
+        info = downloader.parse(req.url)
+        if raw:
+            guest.record(request, response, raw, info)
+        return info
     except VideoError as e:
         _bad_request(e)
 
 
 @app.post("/api/download")
-def download(req: DownloadReq):
+def download(req: DownloadReq, request: Request, user: dict | None = Depends(current_user)):
     try:
         url = downloader.extract_url(req.url)
+        if not user:
+            guest.require_known(request, url)
     except VideoError as e:
         _bad_request(e)
     return manager.submit(req.kind, tasks.single_download(url, req.quality, req.kind)).to_dict()
 
 
 @app.post("/api/batch", dependencies=[Depends(require_user)])
-def batch(req: BatchReq):
+def batch(req: BatchReq, user: dict = Depends(require_user)):
     urls = tasks.dedupe_urls(req.urls)
     if not urls:
         raise HTTPException(400, "未识别到有效链接")
-    if len(urls) > config.MAX_BATCH:
+    cap, name = batch_cap(user['id'])
+    if len(urls) > cap:
+        if name:
+            raise AccountError('BATCH_LIMIT', batch_limit_message(name, cap, len(urls)), 403)
         raise HTTPException(400, f"单次最多批量下载 {config.MAX_BATCH} 个链接")
     return manager.submit("batch", tasks.batch_download(urls, req.quality, req.kind), title=f"批量下载 {len(urls)} 个").to_dict()
 
 
 @app.post("/api/subtitles")
-def subtitles(req: SubtitleReq):
+def subtitles(req: SubtitleReq, user: dict | None = Depends(current_user)):
+    if not user:
+        raise guest.login_required("字幕下载")
     try:
         url = downloader.extract_url(req.url)
     except VideoError as e:
@@ -175,6 +200,8 @@ def subtitles(req: SubtitleReq):
 
 @app.post("/api/transcript")
 def transcript(req: SubtitleReq, user: dict | None = Depends(current_user)):
+    if not user:
+        raise guest.login_required("字幕与文稿提取")
     try:
         url = downloader.extract_url(req.url)
         config.DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -207,9 +234,9 @@ def transcription_session(request: Request, response: Response):
 @app.post("/api/transcriptions")
 def create_transcription(req: TranscriptionReq, request: Request, response: Response, user: dict | None = Depends(current_user)):
     transcription_auth.check_origin(request)
-    if req.allow_asr and not user:
-        raise AccountError('AUTH_REQUIRED', '登录后可使用每月免费语音识别额度', 401)
-    owner = f"user:{user['id']}" if user else transcription_auth.owner(request, response)
+    if not user:
+        raise guest.login_required("字幕提取与语音识别（含每月免费识别额度）")
+    owner = f"user:{user['id']}"
     transcription_auth.rate_limit(request, owner)
     response.headers["Cache-Control"] = "no-store"
     try:
@@ -248,14 +275,27 @@ def transcription_file(job_id: str, request: Request, format: Literal["txt", "sr
 
 
 @app.post("/api/ai/translate", dependencies=[Depends(require_user)])
-def translate(req: TranslateReq):
+def translate(req: TranslateReq, user: dict = Depends(require_user)):
     if not ai.enabled():
         raise HTTPException(503, "AI 功能未启用：请在 backend/.env 中配置 DEEPSEEK_API_KEY")
     try:
         url = downloader.extract_url(req.url)
     except VideoError as e:
         _bad_request(e)
-    return manager.submit("translate", tasks.translate_subtitle(url, req.target_lang)).to_dict()
+    ticket = usage.ai_begin(user['id'], url)
+    inner = tasks.translate_subtitle(url, req.target_lang)
+
+    def run(job):
+        try:
+            return inner(job)
+        except BaseException:
+            usage.ai_release(ticket)
+            raise
+    try:
+        return manager.submit("translate", run).to_dict()
+    except BaseException:
+        usage.ai_release(ticket)
+        raise
 
 
 def _sse(event: str, data) -> str:
@@ -263,11 +303,13 @@ def _sse(event: str, data) -> str:
 
 
 @app.post("/api/ai/summary", dependencies=[Depends(require_user)])
-def summary(req: UrlReq):
+def summary(req: UrlReq, user: dict = Depends(require_user)):
     if not ai.enabled():
         raise HTTPException(503, "AI 功能未启用：请在 backend/.env 中配置 DEEPSEEK_API_KEY")
+    ticket = usage.ai_begin(user['id'], req.url)
 
     def events():
+        produced = False
         try:
             yield _sse("status", "正在获取视频字幕…")
             with tempfile.TemporaryDirectory(dir=config.DOWNLOAD_DIR) as tmp:
@@ -275,6 +317,7 @@ def summary(req: UrlReq):
             yield _sse("meta", {"title": info.get("title"), "thumbnail": info.get("thumbnail"), "cues": len(cues)})
             yield _sse("status", "AI 正在总结…")
             for delta in ai.summarize_stream(info.get("title") or "", to_plain_text(cues)):
+                produced = True
                 yield _sse("delta", delta)
             yield _sse("done", True)
         except (VideoError, ai.AIDisabled) as e:
@@ -282,6 +325,9 @@ def summary(req: UrlReq):
         except Exception as e:  # noqa: BLE001
             logging.exception("summary failed")
             yield _sse("error", f"AI 总结失败：{e}"[:200])
+        finally:
+            if not produced:
+                usage.ai_release(ticket)
 
     return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 

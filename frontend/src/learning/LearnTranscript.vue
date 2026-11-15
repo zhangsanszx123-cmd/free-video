@@ -225,7 +225,7 @@ onUnmounted(stopPending)
       <button v-if="canManualAsr" type="button" :disabled="asrEnabled === false"
         class="btn-primary mt-2.5 inline-flex h-9 items-center gap-1.5 rounded-xl px-3.5 text-xs font-semibold"
         @click="startManualTranscribe">
-        <LearnIcon name="sparkles" :size="14" /> 确认语音转文字（按量计费）
+        <LearnIcon name="sparkles" :size="14" /> 确认语音转文字（消耗识别额度）
       </button>
     </div>
 

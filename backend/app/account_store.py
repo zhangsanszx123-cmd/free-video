@@ -13,6 +13,8 @@ log = logging.getLogger("freevideo.accounts")
 SCHEMA_FILE = config.BASE_DIR / "sql" / "schema.sql"
 UNAVAILABLE = "账号服务暂不可用，请稍后再试"
 USER_FIELDS = "u.id, u.username, u.nickname, u.created_at"
+# (plan, AI videos per cycle, links per batch, longest single recognition in minutes, chat questions per day)
+DEFAULT_LIMITS = [("free", 10, 3, 8, 1), ("monthly", 300, 10, 30, 10), ("yearly", 500, 15, 60, 20)]
 
 
 def utcnow() -> datetime:
@@ -64,6 +66,17 @@ def init_schema():
             if column and column['Type'].lower() == 'char(7)':
                 cur.execute(f"ALTER TABLE {table} MODIFY COLUMN period VARCHAR(40) "
                             "CHARACTER SET ascii COLLATE ascii_bin NOT NULL")
+        # Plan usage limits arrived later: add the columns once and backfill the documented defaults for that run only.
+        cur.execute("SHOW COLUMNS FROM membership_plans LIKE 'ai_monthly_limit'")
+        if not cur.fetchone():
+            cur.execute("ALTER TABLE membership_plans "
+                        "ADD COLUMN ai_monthly_limit INT UNSIGNED NOT NULL DEFAULT 0, "
+                        "ADD COLUMN batch_max_links INT UNSIGNED NOT NULL DEFAULT 1, "
+                        "ADD COLUMN asr_max_minutes INT UNSIGNED NOT NULL DEFAULT 1, "
+                        "ADD COLUMN chat_daily_limit INT UNSIGNED NOT NULL DEFAULT 0")
+            for code, ai, batch, minutes, chat in DEFAULT_LIMITS:
+                cur.execute("UPDATE membership_plans SET ai_monthly_limit=%s, batch_max_links=%s, asr_max_minutes=%s, "
+                            "chat_daily_limit=%s WHERE code=%s", (ai, batch, minutes, chat, code))
 
 
 def _insert_session(cur, user_id: int, session: dict):

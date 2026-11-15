@@ -115,7 +115,7 @@ defineExpose({ start, busy })
     <div v-if="!job" class="px-5 py-14 text-center sm:py-16">
       <span class="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 text-white shadow-lg shadow-indigo-200"><Icon name="captions" :size="27" /></span>
       <h2 class="mt-5 text-lg font-bold text-slate-900">开始提取后，这里会逐条展示字幕结果</h2>
-      <p class="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">优先读取平台字幕，无字幕时自动使用付费语音识别。<br class="hidden sm:block" />查看完整内容后，再一键打包下载。</p>
+      <p class="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">优先读取平台字幕，无字幕时自动使用语音识别（消耗每月额度）。<br class="hidden sm:block" />查看完整内容后，再一键打包下载。</p>
       <div class="mt-6 flex flex-wrap justify-center gap-2 text-xs font-medium text-indigo-700">
         <span v-for="label in ['自动去重', '过程实时可见', '字幕预览与导出']" :key="label" class="rounded-lg bg-indigo-50 px-3 py-2">{{ label }}</span>
       </div>

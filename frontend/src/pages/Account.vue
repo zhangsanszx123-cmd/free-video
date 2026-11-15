@@ -32,7 +32,7 @@ const sections = [
   { id: 'devices', label: '登录设备', icon: 'monitor', description: '查看和管理登录会话' },
   { id: 'delete', label: '注销账号', icon: 'trash', description: '永久删除账号' },
 ]
-const active = ref(sections.some(item => item.id === route.query.section) ? route.query.section : 'profile')
+const active = ref(sections.some(item => item.id === route.query.section) ? route.query.section : 'membership')
 
 /* Orders */
 const orders = reactive({ list: [], loading: false, error: '' })
@@ -198,8 +198,8 @@ async function deleteAccount() {
           </button>
         </nav>
         <div class="min-w-0">
-        <p class="mb-4 text-sm text-slate-500">{{ sections.find(item => item.id === active).description }}</p>
         <div v-show="active === 'membership'" class="space-y-4">
+          <p class="text-sm text-slate-500">{{ sections[0].description }}</p>
           <QuotaCard />
           <div class="flex flex-wrap gap-3">
             <RouterLink to="/history?status=active" class="btn-ghost flex min-h-11 items-center gap-2 px-4 text-sm font-semibold"><Icon name="clock" :size="18" />执行中任务</RouterLink>
@@ -228,6 +228,7 @@ async function deleteAccount() {
         </div>
         <section v-show="active === 'profile'" class="glass-card rounded-3xl p-6 sm:p-8" aria-labelledby="profile-title">
           <h2 id="profile-title" class="flex items-center gap-2 text-lg font-bold text-slate-900"><Icon name="user" :size="18" class="text-indigo-600" /> 基本资料</h2>
+          <p class="mt-1 text-sm text-slate-500">{{ sections[1].description }}</p>
           <form class="mt-4 space-y-4" novalidate @submit.prevent="saveProfile">
             <FormField :model-value="user.username" label="用户名" icon="user" disabled hint="用户名用于登录，不可修改" />
             <FormField v-model="nickname" label="昵称" icon="edit" maxlength="30" autocomplete="nickname" :error="profile.error" :disabled="profile.saving" :hint="`${[...nickname].length} / 30 字符`" />
@@ -240,6 +241,7 @@ async function deleteAccount() {
 
         <section v-show="active === 'password'" class="glass-card rounded-3xl p-6 sm:p-8" aria-labelledby="password-title">
           <h2 id="password-title" class="flex items-center gap-2 text-lg font-bold text-slate-900"><Icon name="lock" :size="18" class="text-indigo-600" /> 修改密码</h2>
+          <p class="mt-1 text-sm text-slate-500">{{ sections[2].description }}</p>
           <form class="mt-4 space-y-4" novalidate @submit.prevent="changePassword">
             <input type="text" :value="user.username" autocomplete="username" class="hidden" tabindex="-1" aria-hidden="true" readonly />
             <FormField v-model="pwd.old" label="当前密码" type="password" autocomplete="current-password" maxlength="128" :error="pwd.oldError" :disabled="pwd.saving" />
@@ -260,6 +262,7 @@ async function deleteAccount() {
             {{ devices.busy === 'others' ? '处理中…' : '退出其它所有设备' }}
           </button>
         </div>
+        <p class="mt-1 text-sm text-slate-500">{{ sections[3].description }}</p>
         <p v-if="devices.error" role="alert" class="mt-4 flex items-center justify-between gap-3 rounded-xl bg-rose-50 px-3 py-2.5 text-sm text-rose-600">
           {{ devices.error }} <button type="button" :disabled="devices.loading || Boolean(devices.busy)" class="min-h-11 shrink-0 font-semibold hover:underline" @click="loadSessions">重新加载</button>
         </p>

@@ -18,9 +18,9 @@
         <h4 class="text-sm font-semibold text-slate-900">工具</h4>
         <ul class="mt-3 space-y-2 text-sm text-slate-500">
           <li><RouterLink to="/" class="hover:text-indigo-600">视频下载</RouterLink></li>
-          <li><RouterLink to="/" class="hover:text-indigo-600">MP3 音频提取</RouterLink></li>
-          <li><RouterLink to="/batch" class="hover:text-indigo-600">批量下载 ZIP</RouterLink></li>
-          <li><RouterLink to="/ai" class="hover:text-indigo-600">AI 视频总结 / 字幕翻译</RouterLink></li>
+          <li><RouterLink to="/batch" class="hover:text-indigo-600">批量提取</RouterLink></li>
+          <li><RouterLink to="/learn" class="hover:text-indigo-600">AI 学习工作台</RouterLink></li>
+          <li><RouterLink to="/ai" class="hover:text-indigo-600">字幕翻译</RouterLink></li>
         </ul>
       </div>
       <div>

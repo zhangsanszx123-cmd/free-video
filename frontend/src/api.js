@@ -86,11 +86,12 @@ export async function downloadArchive(href, filename, signal) {
 }
 
 /** POST + Server-Sent Events reader (EventSource only supports GET). */
-export async function streamSSE(path, body, onEvent) {
+export async function streamSSE(path, body, onEvent, signal) {
   const res = await fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    signal,
   })
   if (!res.ok) {
     const data = await res.json().catch(() => ({}))

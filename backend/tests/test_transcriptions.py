@@ -286,7 +286,7 @@ def test_paraformer_http_contract(monkeypatch):
 
 @pytest.mark.parametrize("payload,code", [
     ({"streams": [], "format": {"duration": "3"}}, "NO_AUDIO"),
-    ({"streams": [{"codec_type": "audio"}], "format": {"duration": "3601"}}, "AUDIO_TOO_LONG"),
+    ({"streams": [{"codec_type": "audio"}], "format": {"duration": str(config.ASR_MAX_DURATION + 1)}}, "AUDIO_TOO_LONG"),
     ({"streams": [{"codec_type": "audio"}], "format": {"duration": "nan"}}, "INVALID_AUDIO"),
 ])
 def test_actual_probe_validation(monkeypatch, tmp_path, payload, code):

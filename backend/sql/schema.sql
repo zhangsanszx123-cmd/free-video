@@ -25,7 +25,11 @@ CREATE TABLE IF NOT EXISTS membership_plans (
   price_cents INT UNSIGNED NOT NULL,
   monthly_seconds INT UNSIGNED NOT NULL,
   months INT UNSIGNED NOT NULL,
-  revision INT UNSIGNED NOT NULL DEFAULT 1
+  revision INT UNSIGNED NOT NULL DEFAULT 1,
+  ai_monthly_limit INT UNSIGNED NOT NULL DEFAULT 0,
+  batch_max_links INT UNSIGNED NOT NULL DEFAULT 1,
+  asr_max_minutes INT UNSIGNED NOT NULL DEFAULT 1,
+  chat_daily_limit INT UNSIGNED NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS user_memberships (
@@ -49,6 +53,38 @@ CREATE TABLE IF NOT EXISTS user_quota_periods (
   reserved_seconds INT UNSIGNED NOT NULL DEFAULT 0,
   PRIMARY KEY(user_id, period),
   CONSTRAINT fk_quota_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- AI usage: one row per distinct video per personal cycle (period key as in user_quota_periods).
+CREATE TABLE IF NOT EXISTS ai_usage_videos (
+  user_id BIGINT UNSIGNED NOT NULL,
+  period VARCHAR(40) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  video_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  created_at DATETIME(6) NOT NULL,
+  PRIMARY KEY (user_id, period, video_key),
+  CONSTRAINT fk_ai_usage_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- AI chat questions per Beijing calendar day.
+CREATE TABLE IF NOT EXISTS ai_chat_daily (
+  user_id BIGINT UNSIGNED NOT NULL,
+  day DATE NOT NULL,
+  used INT UNSIGNED NOT NULL DEFAULT 0,
+  PRIMARY KEY (user_id, day),
+  CONSTRAINT fk_ai_chat_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Guest allowance: the links a not-logged-in visitor parsed. One row per subject ('c:<cookie id>' or 'i:<ip>').
+CREATE TABLE IF NOT EXISTS guest_links (
+  subject VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  link_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  raw_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  duration_seconds INT UNSIGNED NOT NULL DEFAULT 0,
+  created_at DATETIME(6) NOT NULL,
+  claimed_by BIGINT UNSIGNED NULL,
+  claimed_seconds INT UNSIGNED NOT NULL DEFAULT 0,
+  PRIMARY KEY (subject, link_key),
+  KEY idx_guest_raw (subject, raw_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS transcription_records (

@@ -42,10 +42,14 @@ def tmp_downloads(tmp_path, monkeypatch, request):
     main.app.dependency_overrides[account_auth.current_user] = fake_current
     # Legacy ASR tests exercise provider/cost behaviour with no database. Dedicated membership/account
     # tests retain the real repository and a configured MySQL test database.
-    if request.module.__name__.split('.')[-1] not in ('test_membership', 'test_accounts', 'test_payments'):
+    if request.module.__name__.split('.')[-1] not in ('test_membership', 'test_accounts', 'test_payments', 'test_limits', 'test_guest'):
         for name in ('seed', 'create_record', 'persist', 'complete', 'reserve', 'alias_key', 'save_alias', 'hide', 'cleanup', 'recover'):
             monkeypatch.setattr(membership, name, lambda *a, **k: None)
         monkeypatch.setattr(membership, 'record', lambda *a, **k: None)
+        monkeypatch.setattr(membership, 'limits', lambda *a, **k: None)
+        from app import usage
+        for name in ('ai_begin', 'ai_release', 'chat_begin', 'chat_release'):
+            monkeypatch.setattr(usage, name, lambda *a, **k: None)
     yield config.DOWNLOAD_DIR
     main.app.dependency_overrides.pop(account_auth.require_user, None)
     main.app.dependency_overrides.pop(account_auth.current_user, None)

@@ -19,6 +19,7 @@ const meta = ref(null)
 const markdown = ref('')
 const job = ref(null)
 let stop = null
+let summaryCtrl = null
 const submitting = ref(false)
 let disposed = false
 
@@ -29,25 +30,31 @@ onMounted(async () => {
     aiEnabled.value = (await api.health()).ai_enabled
   } catch { /* ignore */ }
 })
-onUnmounted(() => { disposed = true; stop?.() })
+onUnmounted(() => { disposed = true; stop?.(); summaryCtrl?.abort() })
 
 async function summarize() {
+  if (busy.value) return
   loading.value = true
   error.value = ''
   markdown.value = ''
   meta.value = null
+  const ctrl = summaryCtrl = new AbortController()
   try {
     await streamSSE('/api/ai/summary', { url: url.value.trim() }, (event, data) => {
+      if (disposed) return
       if (event === 'status') status.value = data
       else if (event === 'meta') meta.value = data
       else if (event === 'delta') markdown.value += data
       else if (event === 'error') error.value = data
-    })
+    }, ctrl.signal)
   } catch (e) {
-    error.value = e.message
+    if (!disposed && e.name !== 'AbortError') error.value = e.message
   } finally {
-    loading.value = false
-    status.value = ''
+    if (summaryCtrl === ctrl) summaryCtrl = null
+    if (!disposed) {
+      loading.value = false
+      status.value = ''
+    }
   }
 }
 
@@ -71,8 +78,12 @@ async function translate() {
 const busy = computed(() => submitting.value || loading.value || (job.value && !['done', 'error'].includes(job.value.status)))
 const run = () => url.value.trim() && !busy.value && (tab.value === 'summary' ? summarize() : translate())
 async function copy() {
-  await navigator.clipboard.writeText(markdown.value)
-  status.value = '已复制'
+  try {
+    await navigator.clipboard.writeText(markdown.value)
+    status.value = '已复制'
+  } catch {
+    status.value = '复制失败，请手动选择文本复制'
+  }
   setTimeout(() => (status.value = ''), 1500)
 }
 </script>
@@ -81,7 +92,7 @@ async function copy() {
   <section class="hero-bg min-h-[70vh] py-12 sm:py-16">
     <div class="mx-auto max-w-4xl px-4 sm:px-6">
       <div class="text-center">
-        <span class="pro-badge">PRO 功能 · 限时免费</span>
+        <span class="rounded-full bg-indigo-50 px-3 py-1 text-xs font-bold text-indigo-700 ring-1 ring-indigo-100">登录后使用</span>
         <h1 class="mt-3 text-3xl font-extrabold tracking-tight sm:text-5xl"><span class="text-grad">AI 视频总结</span> & 双语字幕</h1>
         <p class="mx-auto mt-4 max-w-2xl text-sm text-slate-600 sm:text-base">基于视频字幕 + DeepSeek 大模型：1 小时视频 30 秒读完，外语字幕一键生成中外双语 SRT。</p>
       </div>
@@ -92,9 +103,9 @@ async function copy() {
       </div>
 
       <div class="input-shell mt-6 rounded-[1.75rem] p-4 sm:p-6">
-        <div class="inline-flex rounded-xl bg-slate-100/90 p-1">
+        <div class="inline-flex rounded-xl bg-slate-100/90 p-1" role="tablist" aria-label="AI 工具">
           <button v-for="t in [['summary', 'AI 视频总结', 'sparkles'], ['translate', '字幕翻译', 'translate']]" :key="t[0]"
-            class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold transition"
+            type="button" role="tab" :aria-selected="tab === t[0]" class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold transition"
             :class="tab === t[0] ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'" @click="tab = t[0]">
             <Icon :name="t[2]" :size="15" /> {{ t[1] }}
           </button>

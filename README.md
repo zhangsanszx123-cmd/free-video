@@ -46,11 +46,12 @@ cd ../backend
 | `MAX_WORKERS` | 并发任务数，默认 3 |
 | `FILE_TTL_MINUTES` | 临时文件保留时间，默认 30 |
 | `MAX_FILESIZE_MB` | 单文件上限，默认 1024 |
-| `MAX_BATCH` | 批量下载上限，默认 20 |
+| `MAX_BATCH` | 批量条数的全局硬上限，默认 20；各套餐单次上限（免费 3 / 月卡 10 / 年卡 15）在数据库套餐表中配置 |
+| `ASR_MAX_DURATION` | 单条语音识别的全局硬上限（秒），默认 3600；各套餐上限（免费 8 / 月卡 30 / 年卡 60 分钟）在套餐表中配置 |
 | `DASHSCOPE_API_KEY` | 音频转文字唯一云端凭证；默认 fun-asr-flash-2026-06-15，无需 OSS |
 | `ASR_DAILY_BUDGET` | 全站每日识别估算额度，默认 10 元，账本持久化 |
 | `FFMPEG_BINARY` / `FFPROBE_BINARY` | 可选完整路径，默认从 PATH 查找 |
-| `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_USER` / `MYSQL_PASSWORD` / `MYSQL_DATABASE` | 账号数据库，默认 `127.0.0.1:3306`、`root`、`freevideo`；数据库不可用时游客功能照常，账号接口返回 503 |
+| `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_USER` / `MYSQL_PASSWORD` / `MYSQL_DATABASE` | 账号数据库，默认 `127.0.0.1:3306`、`root`、`freevideo`；数据库不可用时账号接口返回 503，游客解析/下载也会受影响（游客名额记录在数据库中） |
 | `MYSQL_TEST_DATABASE` | pytest 专用库（会清空表，必须与 `MYSQL_DATABASE` 不同），留空则跳过账号测试 |
 | `AUTH_SESSION_DAYS` | 登录有效期，默认 7 天 |
 | `AUTH_REGISTER_RATE_LIMIT` / `AUTH_LOGIN_RATE_LIMIT` | 每 IP 注册（10 分钟）/ 登录（1 分钟）次数上限，默认 5 / 10 |
@@ -62,12 +63,12 @@ cd ../backend
 ## API
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/api/parse` `{url}` | 解析元信息、清晰度、字幕、可用直链（支持分享口令中提取链接） |
-| POST | `/api/download` `{url, quality, kind}` | 创建下载任务（`kind`: video/audio） |
+| POST | `/api/parse` `{url}` | 解析元信息、清晰度、字幕、可用直链（支持分享口令中提取链接）；游客最多解析 2 个不同链接，用完返回 403 `GUEST_LIMIT` |
+| POST | `/api/download` `{url, quality, kind}` | 创建下载任务（`kind`: video/audio）；游客只能下载已解析的链接 |
 | POST | `/api/batch` `{urls[], quality, kind}` | 批量下载并打包 ZIP（需登录） |
-| POST | `/api/subtitles` `{url, lang}` | 下载 SRT 字幕 |
-| POST | `/api/transcript` `{url, lang?}` | 仅提取已有字幕，输出文字、时间戳、SRT 和来源 |
-| POST | `/api/transcriptions` `{url, lang?, allow_asr}` | 异步字幕优先；显式允许后才调用云端识别 |
+| POST | `/api/subtitles` `{url, lang}` | 下载 SRT 字幕（需登录） |
+| POST | `/api/transcript` `{url, lang?}` | 仅提取已有字幕，输出文字、时间戳、SRT 和来源（需登录） |
+| POST | `/api/transcriptions` `{url, lang?, allow_asr}` | 异步字幕优先；显式允许后才调用云端识别（需登录） |
 | GET | `/api/transcriptions/{id}` / `/api/transcriptions/{id}/file?format=txt\|srt` | 会话保护的转写状态／导出 |
 | POST | `/api/ai/summary` `{url}` | AI 总结（SSE 流式，需登录） |
 | POST | `/api/ai/translate` `{url, target_lang}` | 生成双语 SRT 任务（需登录） |
@@ -94,6 +95,8 @@ cd backend
 - 视频转文字优先读取已有字幕，无字幕时调用 fun-asr-flash-2026-06-15；只需百炼 Key，无需 OSS。超过 5 分钟自动分段并发识别、合并时间轴，整条最长 60 分钟
 - AI 总结/翻译本期仍依赖平台字幕；没有自动联动收费识别
 - 多人转写仅支持单进程，状态目录需持久化；生产需 HTTPS 和会话配置。实时连接中断不自动重发音轨，未决费用保留供核对，详见配置指南
-- 语音识别需登录，每个账号使用当前套餐的一套额度：免费每月 30 分钟、月卡 19.9 元/每月 10 小时、年卡 99 元/每月 30 小时，Pro 不叠加免费额度。免费按注册时间、Pro 按开通时间逐月重置（北京时间，短月取月底）；下载与平台字幕提取免费，历史文稿保存 30 天
+- 游客只能免费解析并下载 2 个不同视频（Cookie + IP 双重记录，永不重置），这 2 个视频的时长在该浏览器首次登录/注册时补扣当月识别额度；字幕提取、识别、批量、AI 都需登录。登录用户下载不限次数。
+- 套餐使用上限（数值存数据库，可用 `python -m app.membership configure` 调整）：AI 视频总结每周期 10 / 300 / 500 个视频（同一视频的总结、导图、追问共算 1 个，失败不扣），AI 追问每天 1 / 10 / 20 条，批量单次 3 / 10 / 15 条，单条识别最长 8 / 30 / 60 分钟（免费 / 月卡 / 年卡）
+- 语音识别需登录，每个账号使用当前套餐的一套额度：免费每月 30 分钟、月卡 19.9 元/每月 10 小时、年卡 99 元/每月 30 小时，Pro 不叠加免费额度。免费按注册时间、Pro 按开通时间逐月重置（北京时间，短月取月底）；登录后下载与平台字幕提取免费，历史文稿保存 30 天
 - 在线支付通过 ZPAY 仅支持支付宝页面跳转收银台；同档续费顺延、月卡可升级年卡，年卡期间不可购买月卡。本机无公网 IP 时靠主动查单与后台对账入账，配置与测试见 [ZPAY 支付配置与验收](docs/zpay-setup.md)；套餐价格仍由本机命令配置，见 [会员额度方案](docs/membership-quota-plan.md)
 - 支付对账线程为单进程实现，多实例部署只在一个实例开启

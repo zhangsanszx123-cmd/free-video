@@ -6,6 +6,7 @@ import MindMapView from './MindMapView.vue'
 import { extractSuggestions, formatTs, learnApi, platformTimeUrl } from './learnApi.js'
 import { renderLearningMarkdown } from './markdown.js'
 import { api, triggerDownload } from '../api.js'
+import { loadMembership, membership } from '../membership.js'
 
 const props = defineProps({
   info: { type: Object, default: null },
@@ -22,6 +23,8 @@ const chatListEl = useTemplateRef('chat-list')
 const activeTab = ref('summary')
 const mode = ref('general')
 const aiEnabled = ref(true)
+const healthAsrMinutes = ref(60)
+const asrMaxMinutes = computed(() => membership.data?.asr_max_minutes || healthAsrMinutes.value)
 
 const summaries = reactive({ general: '', study: '', deep: '' })
 const summaryMeta = ref(null)
@@ -153,9 +156,11 @@ watch(
 )
 
 onMounted(async () => {
+  loadMembership()
   try {
     const h = await api.health()
     aiEnabled.value = Boolean(h.ai_enabled)
+    healthAsrMinutes.value = h.asr_max_minutes || 60
   } catch { /* ignore */ }
 })
 
@@ -240,6 +245,7 @@ async function runSummary(force = false) {
     if (summaryAbort === ctrl) {
       summaryLoading.value = false
       summaryStatus.value = ''
+      loadMembership()
     }
   }
 }
@@ -286,7 +292,10 @@ async function runMindmap(force = false) {
       mindmapError.value = e.message || '生成思维导图失败'
     }
   } finally {
-    if (mindmapAbort === ctrl) mindmapLoading.value = false
+    if (mindmapAbort === ctrl) {
+      mindmapLoading.value = false
+      loadMembership()
+    }
   }
 }
 
@@ -349,7 +358,10 @@ async function sendChat(prefill = '') {
       if (!chatMessages.value[replyIdx]?.content) chatMessages.value.splice(replyIdx, 1)
     }
   } finally {
-    if (chatAbort === ctrl) chatLoading.value = false
+    if (chatAbort === ctrl) {
+      chatLoading.value = false
+      loadMembership()
+    }
   }
 }
 
@@ -477,7 +489,6 @@ function exportNotes(ext = 'md') {
         <div>
           <div class="flex flex-wrap items-center gap-2">
             <h4 class="text-base font-bold text-slate-900 sm:text-lg">AI 视频精读与助学</h4>
-            <span class="pro-badge">PRO</span>
             <span v-if="hasTranscriptReady" class="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
               文稿已就绪 · 秒级生成
             </span>
@@ -538,7 +549,7 @@ function exportNotes(ext = 'md') {
         <div class="flex-1">
           <p class="font-semibold text-slate-900">{{ needAsr.message || '未提取到可下载的平台字幕' }}</p>
           <p class="mt-1 text-xs leading-5 text-slate-600">
-            确认后将提取视频音轨并通过云端语音识别生成带时间轴文稿（最长 60 分钟，按量计费），识别完成后自动生成 AI 总结；同一视频切换学习视角、生成思维导图或追问均自动复用，不会重复扣费。
+            确认后将提取视频音轨并通过云端语音识别生成带时间轴文稿（最长 {{ asrMaxMinutes }} 分钟，消耗你的每月语音识别额度），识别完成后自动生成 AI 总结；同一视频切换学习视角、生成思维导图或追问均自动复用，不会重复扣费。
           </p>
           <div class="mt-3 flex flex-wrap items-center gap-2">
             <button type="button" :disabled="needAsr.asr_enabled === false || asrBusy"

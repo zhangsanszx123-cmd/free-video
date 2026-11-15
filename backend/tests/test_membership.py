@@ -244,10 +244,11 @@ def test_schema_widening_retains_legacy_holds_and_is_idempotent(client):
     assert membership.summary(user)['available_seconds'] == 1800
 
 
-def test_guest_asr_blocked_native_subtitles_free(client, monkeypatch):
+def test_guest_needs_login_for_subtitles_and_asr_but_member_subtitles_are_free(client, monkeypatch):
     monkeypatch.setattr(main, 'read_subtitles', lambda *a: ({'title': '平台字幕'}, SAMPLE, {'source': 'platform_subtitle'}))
-    assert client.post('/api/transcript', json={'url': 'https://example.com/1'}).status_code == 200
+    assert client.post('/api/transcript', json={'url': 'https://example.com/1'}).status_code == 401
     assert client.post('/api/transcriptions', json={'url': 'https://example.com/1', 'allow_asr': True}).status_code == 401
+    assert client.post('/api/transcriptions', json={'url': 'https://example.com/1', 'allow_asr': False}).status_code == 401
     user = uid(client)
     for _ in range(2):
         assert client.post('/api/transcript', json={'url': 'https://example.com/1'}).status_code == 200

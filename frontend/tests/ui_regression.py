@@ -67,7 +67,7 @@ class UIRegression(unittest.TestCase):
                 if path == '/batch':
                     self.page.get_by_label('\u4e0b\u8f7d\u683c\u5f0f').select_option('video')
                 if path == '/ai':
-                    self.page.get_by_role('button', name='字幕翻译', exact=True).click()
+                    self.page.get_by_role('tab', name='字幕翻译', exact=True).click()
                 self.page.get_by_role('textbox').fill(INFO['url'])
                 control = self.page.get_by_role('button', name=button, exact=True).element_handle()
                 control.evaluate('(b) => { b.click(); b.click(); }')
@@ -164,6 +164,161 @@ class UIRegression(unittest.TestCase):
         self.assertGreater(float(self.page.evaluate('parseFloat(getComputedStyle(document.body).paddingBottom)')), 0)
         close.click()
         self.assertEqual(self.page.evaluate('parseFloat(getComputedStyle(document.body).paddingBottom)'), 0)
+
+
+    def test_copy_and_marketing_rules(self):
+        """Copy must match current rules: no PRO badges / "limited free" / 8K / ad claims; FAQ mentions ASR."""
+        banned = ['限时免费', '8K', '广告与插件', '按量计费', '付费语音识别', 'API 预算']
+        for path in ['/', '/batch', '/ai', '/learn', '/pricing']:
+            self.page.goto(BASE + path)
+            self.page.wait_for_timeout(150)
+            body = self.page.inner_text('body')
+            for word in banned:
+                self.assertNotIn(word, body, f'{word} on {path}')
+            self.assertEqual(self.page.get_by_text('PRO', exact=True).count(), 0, path)
+        self.page.goto(BASE)
+        faq = self.page.get_by_role('button', name='AI 总结是怎么实现的？')
+        faq.click()
+        expect(self.page.get_by_text('可在你确认后先用语音识别生成文稿', exact=False)).to_be_visible()
+        self.page.goto(BASE + '/batch')
+        expect(self.page.get_by_text('消耗你的每月语音识别额度')).to_be_visible()
+
+    def test_ai_copy_failure_is_handled(self):
+        self.page.route('**/api/ai/summary', lambda r: r.fulfill(
+            body='event: delta\ndata: "hi"\n\n', content_type='text/event-stream'))
+        self.page.goto(BASE + '/ai')
+        self.page.get_by_role('textbox').fill(INFO['url'])
+        self.page.get_by_role('button', name='开始总结', exact=True).click()
+        copy = self.page.get_by_role('button', name='复制', exact=True)
+        expect(copy).to_be_visible()
+        self.page.evaluate('() => { navigator.clipboard.writeText = () => Promise.reject(new Error("denied")); }')
+        copy.click()
+        expect(self.page.get_by_text('复制失败')).to_be_visible()
+
+    def test_mobile_menu_escape_and_account_menu(self):
+        self.page.set_viewport_size(dict(width=390, height=844))
+        self.page.goto(BASE)
+        toggle = self.page.get_by_role('button', name='打开导航菜单')
+        toggle.click()
+        self.page.wait_for_timeout(400)
+        expect(self.page.locator('#mobile-navigation')).to_be_visible()
+        self.page.keyboard.press('Escape')
+        expect(self.page.locator('#mobile-navigation')).to_have_count(0)
+        expect(self.page.get_by_role('button', name='打开导航菜单')).to_be_focused()
+        self.page.set_viewport_size(dict(width=1440, height=900))
+        self.page.locator('button[aria-haspopup=menu]').click()
+        menu = self.page.get_by_role('menu')
+        expect(menu.get_by_role('menuitem', name=r'个人中心', exact=False)).to_have_count(1)
+        self.page.keyboard.press('Escape')
+        expect(menu).to_have_count(0)
+        expect(self.page.locator('button[aria-haspopup=menu]')).to_be_focused()
+
+    def test_result_card_no_duplicate_controls(self):
+        self.page.route('**/api/parse', lambda r: r.fulfill(json=dict(INFO, thumbnail='https://example.invalid/t.jpg')))
+        self.page.route('**/example.invalid/**', lambda r: r.abort())
+        self.page.goto(BASE)
+        self.page.get_by_role('textbox', name='视频链接或分享口令').fill(INFO['url'])
+        self.page.get_by_role('button', name='立即解析', exact=True).click()
+        expect(self.page.get_by_role('button', name='下载高清视频', exact=True)).to_be_visible()
+        self.assertEqual(self.page.get_by_role('button', name='复制全部链接').count(), 0)
+        self.assertEqual(self.page.get_by_role('button', name='下载视频', exact=True).count(), 0)
+        expect(self.page.get_by_role('heading', name='封面图片')).to_be_visible()
+        expect(self.page.get_by_text('暂无可预览的音频')).to_be_visible()
+        panel = self.page.get_by_role('tabpanel')
+        expect(panel).to_be_visible()
+        expect(self.page.get_by_role('tab', name='素材与文案下载')).to_have_attribute('aria-controls', 'result-panel')
+
+    def test_not_found_page(self):
+        self.page.goto(BASE + '/no-such-page')
+        expect(self.page.get_by_role('heading', name='没有找到这个页面')).to_be_visible()
+        self.page.get_by_role('link', name='返回首页').click()
+        self.page.wait_for_url(BASE + '/')
+
+    def test_account_defaults_to_membership(self):
+        self.page.route('**/api/account/membership', lambda r: r.fulfill(json=dict(
+            plan='free', name='免费用户', limit_seconds=1800, used_seconds=0, reserved_seconds=0, available_seconds=1800,
+            resets_at='2026-12-10T00:00:00Z', ends_with_membership=False, payment_enabled=True)))
+        self.page.route('**/api/pay/orders', lambda r: r.fulfill(json=dict(orders=[])))
+        self.page.goto(BASE + '/account')
+        nav = self.page.get_by_role('navigation', name='个人中心分区')
+        expect(nav.get_by_role('button', name='会员与额度')).to_have_attribute('aria-current', 'page')
+        expect(self.page.get_by_role('region', name='语音识别额度')).to_be_visible()
+
+    MEMBER = dict(plan='free', name='免费用户', limit_seconds=1800, used_seconds=0, reserved_seconds=0, available_seconds=1800,
+                  resets_at='2026-12-10T00:00:00Z', ends_with_membership=False, payment_enabled=True, ai_limit=10, ai_used=10,
+                  chat_daily_limit=20, chat_used_today=3, batch_max_links=3, asr_max_minutes=30)
+
+    def test_plan_limits_are_shown(self):
+        limits = dict(ai_monthly_limit=10, batch_max_links=3, asr_max_minutes=30, chat_daily_limit=20)
+        self.page.route('**/api/plans', lambda r: r.fulfill(json=dict(payment_enabled=True, plans=[
+            dict(code='free', name='免费用户', price_cents=0, monthly_seconds=1800, **limits),
+            dict(code='monthly', name='月卡会员', price_cents=1990, monthly_seconds=36000, ai_monthly_limit=300,
+                 batch_max_links=10, asr_max_minutes=60, chat_daily_limit=100),
+            dict(code='yearly', name='年卡会员', price_cents=9900, monthly_seconds=108000, ai_monthly_limit=500,
+                 batch_max_links=15, asr_max_minutes=120, chat_daily_limit=200)])))
+        self.page.route('**/api/account/membership', lambda r: r.fulfill(json=self.MEMBER))
+        self.page.route('**/api/pay/orders', lambda r: r.fulfill(json=dict(orders=[])))
+        self.page.goto(BASE + '/pricing')
+        cards = self.page.locator('article')
+        expect(cards.nth(0)).to_contain_text('AI 视频总结每月 10 个视频')
+        expect(cards.nth(1)).to_contain_text('批量提取单次最多 10 条链接')
+        expect(cards.nth(2)).to_contain_text('单条语音识别最长 120 分钟')
+        row = self.page.get_by_role('row', name='AI 追问（每天）')
+        expect(row).to_contain_text('20 条')
+        expect(row).to_contain_text('200 条')
+        self.page.goto(BASE + '/account')
+        quota = self.page.get_by_role('region', name='语音识别额度')
+        expect(quota).to_contain_text('本期已用 10 / 10 个视频')
+        expect(quota).to_contain_text('今日已用 3 / 20 条')
+        expect(quota).to_contain_text('单次最多 3 条')
+
+    def test_batch_cap_follows_plan_and_blocks_submit(self):
+        self.page.route('**/api/account/membership', lambda r: r.fulfill(json=self.MEMBER))
+        posted = []
+        self.page.route('**/api/batch', lambda r: posted.append(r))
+        self.page.goto(BASE + '/batch')
+        self.page.get_by_label('下载格式').select_option('video')
+        self.page.get_by_role('textbox').fill('https://a.com/1 https://a.com/2 https://a.com/3 https://a.com/4')
+        expect(self.page.get_by_text('免费用户单次最多 3 条 · 自动去重')).to_be_visible()
+        expect(self.page.get_by_text('/ 3 条链接')).to_be_visible()
+        self.page.get_by_role('button', name='开始批量下载（4 条）').click()
+        expect(self.page.get_by_role('alert')).to_contain_text('单次最多 3 条')
+        expect(self.page.get_by_role('link', name='升级提高上限')).to_be_visible()
+        self.assertEqual(posted, [])
+
+    def test_ai_limit_message_is_shown(self):
+        self.page.route('**/api/parse', lambda r: r.fulfill(json=INFO))
+        self.page.route('**/api/learn/summary', lambda r: r.fulfill(
+            body='event: error\ndata: "本期 AI 次数已用完（10/10 个视频）。"\n\n', content_type='text/event-stream'))
+        self.page.goto(BASE + '/learn?url=' + INFO['url'])
+        self.page.get_by_role('button', name='一键 AI 总结').click()
+        expect(self.page.get_by_text('本期 AI 次数已用完')).to_be_visible()
+
+    def test_guest_sees_login_prompt_instead_of_subtitles(self):
+        self.page.route('**/api/auth/me', lambda r: r.fulfill(json=dict(user=None)))
+        calls = []
+        self.page.route('**/api/transcript', lambda r: (calls.append(r), r.fulfill(json=dict(text='x')))[0])
+        self.page.route('**/api/parse', lambda r: r.fulfill(json=dict(INFO, subtitles=[dict(lang='zh', name='中文')])))
+        self.page.goto(BASE)
+        self.page.get_by_role('textbox', name='视频链接或分享口令').fill(INFO['url'])
+        self.page.get_by_role('button', name='立即解析', exact=True).click()
+        expect(self.page.get_by_text('登录后可提取平台字幕与视频文稿')).to_be_visible()
+        expect(self.page.get_by_role('button', name='下载高清视频', exact=True)).to_be_enabled()
+        self.assertEqual(calls, [])
+        self.page.get_by_role('button', name='登录 / 注册').click()
+        expect(self.page.get_by_role('dialog')).to_be_visible()
+
+    def test_guest_limit_opens_login_dialog(self):
+        self.page.route('**/api/auth/me', lambda r: r.fulfill(json=dict(user=None)))
+        self.page.route('**/api/parse', lambda r: r.fulfill(status=403, json=dict(
+            detail='游客的 2 个视频名额已用完，请登录后继续', code='GUEST_LIMIT')))
+        self.page.goto(BASE)
+        self.page.get_by_role('textbox', name='视频链接或分享口令').fill(INFO['url'])
+        self.page.get_by_role('button', name='立即解析', exact=True).click()
+        dialog = self.page.get_by_role('dialog')
+        expect(dialog).to_be_visible()
+        expect(dialog).to_contain_text('名额已用完')
+        expect(self.page.get_by_role('alert').first).to_contain_text('名额已用完')
 
 
 if __name__ == '__main__':

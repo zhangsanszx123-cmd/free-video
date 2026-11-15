@@ -57,6 +57,7 @@ async function parse() {
     return true
   } catch (e) {
     error.value = e.message
+    if (e.code === 'GUEST_LIMIT') openAuth({ notice: e.message, onSuccess: () => { if (!disposed) submitWithView(activeView.value) } })
     return false
   }
 }
@@ -124,7 +125,7 @@ onUnmounted(() => { disposed = true; clearTimeout(healthTimer); healthController
     <div class="pointer-events-none absolute -right-24 top-10 h-72 w-72 rounded-full bg-violet-400/20 blur-3xl"></div>
     <div class="relative mx-auto max-w-5xl px-4 text-center sm:px-6">
       <div class="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50/90 px-3 py-1 text-xs font-semibold text-amber-700">
-        <Icon name="gift" :size="14" /> 视频下载与平台字幕免费<span class="hidden sm:inline">，语音识别按月度额度使用</span>
+        <Icon name="gift" :size="14" /> 游客可免费下载 2 个视频<span class="hidden sm:inline">，登录后不限次数，语音识别按月度额度使用</span>
         <RouterLink to="/pricing" class="text-amber-800 underline-offset-2 hover:underline">查看 →</RouterLink>
       </div>
       <h1 class="mt-5 text-3xl font-extrabold leading-tight tracking-tight text-slate-950 sm:text-5xl lg:text-6xl">
@@ -148,9 +149,11 @@ onUnmounted(() => { disposed = true; clearTimeout(healthTimer); healthController
             <!-- Tab 1: 素材与文案下载 -->
             <button
               type="button"
+              id="mode-tab-download"
               role="tab"
               :aria-selected="activeView === 'download'"
-              class="inline-flex h-10 cursor-pointer items-center gap-2 rounded-xl px-5 text-sm font-extrabold transition-all duration-200 sm:px-6 sm:text-[15px]"
+              :aria-controls="loading || info ? 'result-panel' : undefined"
+              class="inline-flex h-10 cursor-pointer items-center gap-2 rounded-xl px-4 text-sm font-extrabold transition-all duration-200 sm:px-6 sm:text-[15px]"
               :class="activeView === 'download'
                 ? 'bg-gradient-to-r from-indigo-600 via-violet-600 to-purple-600 text-white shadow-[0_6px_16px_-4px_rgba(124,58,237,0.55)]'
                 : 'bg-purple-50/70 text-slate-700 ring-1 ring-purple-200/80 hover:bg-purple-100/70 hover:text-purple-700'"
@@ -160,12 +163,14 @@ onUnmounted(() => { disposed = true; clearTimeout(healthTimer); healthController
               <span>素材与文案下载</span>
             </button>
 
-            <!-- Tab 2: AI 视频总结 PRO -->
+            <!-- Tab 2: AI 视频总结 -->
             <button
               type="button"
+              id="mode-tab-ai"
               role="tab"
               :aria-selected="activeView === 'ai'"
-              class="inline-flex h-10 cursor-pointer items-center gap-2 rounded-xl px-5 text-sm font-extrabold transition-all duration-200 sm:px-6 sm:text-[15px]"
+              :aria-controls="loading || info ? 'result-panel' : undefined"
+              class="inline-flex h-10 cursor-pointer items-center gap-2 rounded-xl px-4 text-sm font-extrabold transition-all duration-200 sm:px-6 sm:text-[15px]"
               :class="activeView === 'ai'
                 ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-[0_6px_16px_-4px_rgba(37,99,235,0.5)]'
                 : 'bg-blue-50/70 text-slate-700 ring-1 ring-blue-200/80 hover:bg-blue-100/70 hover:text-blue-700'"
@@ -173,7 +178,6 @@ onUnmounted(() => { disposed = true; clearTimeout(healthTimer); healthController
             >
               <Icon name="sparkles" :size="17" :class="activeView === 'ai' ? 'text-amber-300' : 'text-blue-600'" />
               <span>AI 视频总结</span>
-              <span class="pro-badge shadow-xs">PRO</span>
             </button>
           </div>
 
@@ -193,7 +197,7 @@ onUnmounted(() => { disposed = true; clearTimeout(healthTimer); healthController
               type="text"
               inputmode="url"
               autocomplete="off"
-              :placeholder="activeView === 'ai' ? '粘贴视频链接，一键生成 AI 结构化大纲、脑图与时间戳精读…' : '粘贴视频链接或分享口令，如 https://b23.tv/xxxx'"
+              :placeholder="activeView === 'ai' ? '粘贴视频链接，AI 一键总结' : '粘贴视频链接或分享口令'"
               class="input-control min-h-[60px] w-full rounded-2xl py-4 pl-12 pr-24 text-sm font-medium text-slate-900 placeholder-slate-400 sm:text-base"
             />
             <div class="absolute right-2.5 top-1/2 flex -translate-y-1/2 gap-1">
@@ -224,7 +228,7 @@ onUnmounted(() => { disposed = true; clearTimeout(healthTimer); healthController
         <div class="mt-3.5 flex flex-wrap items-center justify-between gap-2 border-t border-slate-200/60 pt-3 text-xs">
           <div class="flex flex-wrap items-center gap-2 text-slate-600">
             <span class="inline-flex items-center gap-1 rounded-lg bg-slate-100/90 px-2.5 py-1 font-medium">
-              <Icon name="video" :size="13" class="text-blue-600" /> 4K 原画无水印
+              <Icon name="video" :size="13" class="text-blue-600" /> 4K+ 原画画质
             </span>
             <span class="inline-flex items-center gap-1 rounded-lg bg-slate-100/90 px-2.5 py-1 font-medium">
               <Icon name="music" :size="13" class="text-indigo-600" /> 192k 高品质 MP3
@@ -257,7 +261,6 @@ onUnmounted(() => { disposed = true; clearTimeout(healthTimer); healthController
           <div>
             <div class="flex items-center gap-2">
               <span class="text-base font-extrabold tracking-wide text-white sm:text-lg">批量提取 · 打包下载</span>
-              <span class="rounded-full border border-white/20 bg-white/15 px-2 py-0.5 text-[11px] font-extrabold text-white">PRO</span>
             </div>
             <p class="mt-0.5 text-xs text-indigo-100 sm:text-sm">
               一次粘贴多条链接，后台自动逐条完成，无需逐个等待
@@ -287,7 +290,7 @@ onUnmounted(() => { disposed = true; clearTimeout(healthTimer); healthController
     </div>
 
     <!-- ResultCard (max-w-6xl = 1152px wide workspace) -->
-    <div v-if="loading || info" class="relative mx-auto mt-6 max-w-6xl px-3 text-left sm:mt-8 sm:px-4 md:mt-12">
+    <div v-if="loading || info" id="result-panel" role="tabpanel" :aria-labelledby="`mode-tab-${activeView}`" class="relative mx-auto mt-6 max-w-6xl px-3 text-left sm:mt-8 sm:px-4 md:mt-12">
       <ResultCard
         :info="info"
         :loading="loading"
@@ -301,7 +304,7 @@ onUnmounted(() => { disposed = true; clearTimeout(healthTimer); healthController
   <!-- Stats -->
   <section class="border-y border-slate-200 bg-white">
     <div class="mx-auto grid max-w-6xl grid-cols-2 gap-6 px-4 py-8 text-center sm:grid-cols-4 sm:px-6">
-      <div v-for="s in [['1800+', '支持站点'], ['8K', '最高画质'], ['0', '广告与插件'], ['3 步', '完成下载']]" :key="s[1]">
+      <div v-for="s in [['1800+', '支持站点'], ['4K+', '原画画质'], ['免安装', '网页即用'], ['3 步', '完成下载']]" :key="s[1]">
         <div class="text-grad text-3xl font-extrabold sm:text-4xl">{{ s[0] }}</div>
         <div class="mt-1 text-sm text-slate-500">{{ s[1] }}</div>
       </div>
@@ -316,7 +319,6 @@ onUnmounted(() => { disposed = true; clearTimeout(healthTimer); healthController
       <div class="mt-10 grid gap-4 text-left sm:grid-cols-2 lg:grid-cols-3">
         <div v-for="f in features" :key="f.title"
           class="group relative rounded-2xl border border-slate-200 bg-white p-6 transition hover:-translate-y-1 hover:border-indigo-200 hover:shadow-xl hover:shadow-indigo-500/10">
-          <span v-if="f.pro" class="pro-badge absolute right-4 top-4">PRO</span>
           <span class="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 transition group-hover:bg-gradient-to-br group-hover:from-blue-600 group-hover:via-indigo-500 group-hover:to-violet-600 group-hover:text-white">
             <Icon :name="f.icon" :size="22" />
           </span>
@@ -392,8 +394,8 @@ onUnmounted(() => { disposed = true; clearTimeout(healthTimer); healthController
   <section class="px-4 pb-16 sm:px-6">
     <div class="relative mx-auto max-w-5xl overflow-hidden rounded-3xl bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 px-6 py-12 text-center text-white shadow-2xl shadow-indigo-500/30 sm:py-16">
       <div class="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-white/10 blur-2xl"></div>
-      <h2 class="text-2xl font-extrabold sm:text-4xl">每天不到一杯奶茶钱的 1/50</h2>
-      <p class="mx-auto mt-3 max-w-xl text-sm text-indigo-100 sm:text-base">升级 Pro，解锁 4K 原画、批量下载、AI 总结与双语字幕，学习效率翻倍。</p>
+      <h2 class="text-2xl font-extrabold sm:text-4xl">登录即可免费使用，按需再升级</h2>
+      <p class="mx-auto mt-3 max-w-xl text-sm text-indigo-100 sm:text-base">游客可免费下载 2 个视频；登录后下载不限次数，字幕提取、批量、AI 总结都能用，每月还有免费语音识别额度。需要更多时长与次数，可升级月卡或年卡。</p>
       <div class="mt-7 flex flex-col justify-center gap-3 sm:flex-row">
         <RouterLink to="/pricing" class="btn-gold inline-flex items-center justify-center gap-2 rounded-xl px-8 py-3.5 font-bold">
           <Icon name="crown" :size="18" /> 查看会员与识别时长

@@ -12,12 +12,36 @@ from .errors import AccountError, TranscriptionError
 TZ = timezone(timedelta(hours=8))
 DEFAULT_PLANS = [('free', '免费用户', 0, 1800, 0), ('monthly', '月卡会员', 1990, 36000, 1),
                  ('yearly', '年卡会员', 9900, 108000, 12)]
+LIMIT_COLUMNS = ('ai_monthly_limit', 'batch_max_links', 'asr_max_minutes', 'chat_daily_limit')
 
 
 def seed():
+    limits_by_code = {row[0]: row[1:] for row in store.DEFAULT_LIMITS}
+    rows = [plan + limits_by_code[plan[0]] for plan in DEFAULT_PLANS]
     with store._cursor() as cur:
-        cur.executemany('INSERT IGNORE INTO membership_plans (code,name,price_cents,monthly_seconds,months) '
-                        'VALUES (%s,%s,%s,%s,%s)', DEFAULT_PLANS)
+        cur.executemany('INSERT IGNORE INTO membership_plans (code,name,price_cents,monthly_seconds,months,'
+                        + ','.join(LIMIT_COLUMNS) + ') VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)', rows)
+
+
+def beijing_day(now=None):
+    now = now if now is not None else store.utcnow()
+    return now.replace(tzinfo=timezone.utc).astimezone(TZ).date()
+
+
+def _plan_limits(cur, code):
+    cur.execute('SELECT * FROM membership_plans WHERE code=%s', (code,))
+    plan = cur.fetchone()
+    if not plan:
+        raise AccountError('PLAN_UNAVAILABLE', '套餐配置暂不可用', 503)
+    return dict(plan=plan['code'], name=plan['name'], ai_monthly_limit=plan['ai_monthly_limit'],
+                batch_max_links=plan['batch_max_links'], asr_max_minutes=plan['asr_max_minutes'],
+                chat_daily_limit=plan['chat_daily_limit'])
+
+
+def limits(user_id):
+    """Usage limits of the user's current plan (read live from the plan table, not snapshotted)."""
+    with store._cursor() as cur:
+        return _plan_limits(cur, _entitlement(cur, user_id)['code'])
 
 
 def plans():
@@ -97,7 +121,15 @@ def summary(user_id):
         cur.execute("SELECT COALESCE(SUM(seconds),0) AS held FROM quota_reservations "
                     "WHERE user_id=%s AND period<>%s AND state IN ('reserved','unknown')", (user_id, quota['period']))
         held = int(cur.fetchone()['held'])
+        plan_limits = _plan_limits(cur, ent['code'])
+        cur.execute('SELECT COUNT(*) AS n FROM ai_usage_videos WHERE user_id=%s AND period=%s', (user_id, quota['period']))
+        ai_used = int(cur.fetchone()['n'])
+        cur.execute('SELECT used FROM ai_chat_daily WHERE user_id=%s AND day=%s', (user_id, beijing_day(now)))
+        chat_row = cur.fetchone()
     return dict(plan=ent['code'], name=ent['name'], expires_at=iso(ent['expires_at']),
+                ai_limit=plan_limits['ai_monthly_limit'], ai_used=ai_used,
+                chat_daily_limit=plan_limits['chat_daily_limit'], chat_used_today=int(chat_row['used']) if chat_row else 0,
+                batch_max_links=plan_limits['batch_max_links'], asr_max_minutes=plan_limits['asr_max_minutes'],
                 limit_seconds=quota['limit_seconds'], used_seconds=quota['used_seconds'],
                 reserved_seconds=quota['reserved_seconds'], pending_previous_seconds=held,
                 available_seconds=max(0, quota['limit_seconds'] - quota['used_seconds'] - quota['reserved_seconds'] - held),
@@ -364,12 +396,17 @@ def apply_membership(cur, uid, plan, starts_at, expires_at):
                 (plan['monthly_seconds'], code, uid, quota['period']))
 
 
-def configure(code, price_cents, monthly_seconds):
+def configure(code, price_cents, monthly_seconds, **limit_values):
     if code not in ('free', 'monthly', 'yearly') or price_cents < 0 or monthly_seconds <= 0 or (code == 'free' and price_cents):
+        raise ValueError('套餐参数无效')
+    changes = {k: v for k, v in limit_values.items() if v is not None}
+    if set(changes) - set(LIMIT_COLUMNS) or any(v < 1 for v in changes.values()):
         raise ValueError('套餐参数无效')
     with store._cursor() as cur:
         cur.execute('UPDATE membership_plans SET price_cents=%s,monthly_seconds=%s,revision=revision+1 WHERE code=%s',
                     (price_cents, monthly_seconds, code))
+        for column, value in changes.items():
+            cur.execute(f'UPDATE membership_plans SET {column}=%s WHERE code=%s', (value, code))
 
 
 if __name__ == '__main__':
@@ -384,6 +421,8 @@ if __name__ == '__main__':
     edit.add_argument('plan', choices=['free', 'monthly', 'yearly'])
     edit.add_argument('--price-cents', type=int, required=True)
     edit.add_argument('--monthly-seconds', type=int, required=True)
+    for column in LIMIT_COLUMNS:
+        edit.add_argument('--' + column.replace('_', '-'), type=int)
     args = parser.parse_args()
     store.init_schema()
     seed()
@@ -391,7 +430,8 @@ if __name__ == '__main__':
         grant(args.username, args.plan)
         print('会员已开通')
     elif args.command == 'configure':
-        configure(args.plan, args.price_cents, args.monthly_seconds)
+        configure(args.plan, args.price_cents, args.monthly_seconds,
+                  **{column: getattr(args, column) for column in LIMIT_COLUMNS})
         print('套餐配置已更新；已有付费会员权益保持原快照')
     else:
         print(json.dumps(plans(), ensure_ascii=False))

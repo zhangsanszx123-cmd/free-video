@@ -3,7 +3,7 @@ import { computed, onUnmounted, ref, watch } from 'vue'
 import { api, transcriptionFileUrl, triggerDownload } from '../api.js'
 import Icon from './Icon.vue'
 import { account, openAuth } from '../account.js'
-import { loadMembership } from '../membership.js'
+import { loadMembership, membership } from '../membership.js'
 
 const props = defineProps({
   info: { type: Object, required: true },
@@ -20,9 +20,11 @@ const errorCode = ref('')
 const retryable = ref(false)
 const timestamps = ref(false)
 const asrEnabled = ref(null)
-const maxMinutes = ref(60)
+const healthMinutes = ref(60)
+const maxMinutes = computed(() => membership.data?.asr_max_minutes || healthMinutes.value)
 const reconnect = ref(false)
 const auto = ref(false)
+const guestPrompt = ref(false)
 let healthReady = Promise.resolve()
 let version = 0
 let controller
@@ -192,7 +194,7 @@ watch(timestamps, (val) => {
   emit('update:timestamps', val)
 })
 
-watch(() => props.info, async (info) => {
+async function init(info) {
   resetRequest()
   busy.value = false
   job.value = null
@@ -205,9 +207,14 @@ watch(() => props.info, async (info) => {
   healthReady = api.health().then((health) => {
     if (props.info === info) {
       asrEnabled.value = health.asr_enabled
-      maxMinutes.value = health.asr_max_minutes || 60
+      healthMinutes.value = health.asr_max_minutes || 60
     }
   }).catch(() => { if (props.info === info) asrEnabled.value = null })
+  // Guests may only download; subtitle and speech-to-text features need an account.
+  if (!account.loggedIn) await account.ensure()
+  if (props.info !== info) return
+  guestPrompt.value = !account.loggedIn
+  if (guestPrompt.value) return
   if (info.subtitles?.length) await loadSubtitles()
   else {
     const current = version
@@ -215,8 +222,11 @@ watch(() => props.info, async (info) => {
     error.value = info.subtitle_notice || '未提取到可下载字幕，可从视频声音生成文字。'
     await autoTranscribe(current)
   }
-}, { immediate: true })
+}
+watch(() => props.info, init, { immediate: true })
+watch(() => account.loggedIn, (loggedIn) => { if (loggedIn && guestPrompt.value) init(props.info) })
 
+loadMembership()
 onUnmounted(resetRequest)
 </script>
 
@@ -233,6 +243,13 @@ onUnmounted(resetRequest)
           <option v-for="s in info.subtitles" :key="s.lang" :value="s.lang">{{ s.name }}</option>
         </select>
       </label>
+    </div>
+
+    <div v-if="guestPrompt" class="mt-4 rounded-xl bg-indigo-50 p-4 text-sm leading-6 text-indigo-900" role="status">
+      <p class="font-semibold">登录后可提取平台字幕与视频文稿</p>
+      <p class="mt-1">游客可免费下载 2 个视频；字幕提取、语音转文字、批量提取与 AI 总结需要登录，登录后下载不限次数。</p>
+      <button type="button" class="btn-primary mt-3 inline-flex min-h-11 items-center gap-2 rounded-xl px-4 font-semibold"
+        @click="openAuth({ notice: '登录后即可提取字幕与视频文稿' })">登录 / 注册</button>
     </div>
 
     <div v-if="busy" class="mt-4 rounded-xl bg-indigo-50 p-4 text-sm text-indigo-800" role="status" aria-live="polite">

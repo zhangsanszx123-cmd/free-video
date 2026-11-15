@@ -58,7 +58,7 @@ onUnmounted(() => { disposed = true; version++; clearTimeout(timer) })
 </script>
 
 <template>
-  <section class="min-h-[calc(100dvh-4rem)] bg-slate-50 px-4 py-8 sm:py-12">
+  <section class="hero-bg min-h-[calc(100dvh-4rem)] px-4 py-8 sm:py-12">
     <div class="mx-auto max-w-5xl">
       <header class="flex flex-wrap items-center justify-between gap-4">
         <div><h1 class="flex items-center gap-3 text-2xl font-extrabold text-slate-950"><Icon :name="status === 'active' ? 'clock' : 'file'" class="text-indigo-600" />{{ status === 'active' ? '执行中任务' : '历史任务' }}</h1><p class="mt-2 text-sm leading-6 text-slate-600">任务记录与转录文本保存 30 天，同一账号可跨设备查看。</p></div>
