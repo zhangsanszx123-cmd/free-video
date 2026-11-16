@@ -1,5 +1,14 @@
 # FreeVideo 方案设计文档
 
+## 2026-11-16 请求会话、分享初始化与分 P 播放
+
+- `account.js` 新增独立会话版本及 `getAuthSessionVersion/handleAuthRequired`，区别于保护身份查询的 `identityGeneration` 和驱动页面重建的 `account.version`。登录、自动登录注册、邮箱验证登录、退出及身份改变递增会话版本；同身份的普通 me/资料更新不递增。
+- `accountApi`、`api.request`、ZIP 元信息查询、学习 SSE 与导图请求在发送前捕获会话版本。迟到的 `AUTH_REQUIRED` 仍拒绝原业务请求，但仅在版本仍匹配时清除当前身份。
+- 跨标签消息增加 `sessionChanged`，区分会话变动与资料更新；收到会话消息立即使旧错误失效，再查询 me。缺少新字段的旧格式消息按会话变动处理，BroadcastChannel 和 storage 备用通道共用规则。
+- `Home.onMounted` 在身份等待前保存操作版本及分享 URL，恢复后先复核版本和组件存活状态，再应用模式与链接。清空显式废弃旧操作；正常分享自动解析与游客降级保持有效。
+- 新增纯工具 `learning/videoEmbed.js`，供 `ResultCard` 和 `LearnWorkbench` 构造 B站预览。按 [B站官方播放器参数](https://player.bilibili.com/) 传入 `bvid,p,t,autoplay`，不传会覆盖 `p` 的 `cid`；`p` 仅接受正安全整数，缺省或非法值回第 1 P。解析结果未包含总 P 数，不推断实际选集是否存在。
+- 回归包括五个 401 入口、同账号重登、跨标签通知、普通刷新后真实失效、首页延迟初始化，以及两个播放器入口的分 P 跳播。具体结果、复跑命令与人工验收见 [本轮验证记录](./frontend-followup-verification.md)。
+
 ## 2026-11-15 支付方式选择
 
 - `PayModal.vue` 使用原生 radio 提供选择语义和键盘焦点，微信项禁用；提交锁同时禁用方式选择。下单传入 `pay_type`，`OrderReq` 当前仅接受 alipay，缺省仍兼容旧请求，未开放方式返回 422。

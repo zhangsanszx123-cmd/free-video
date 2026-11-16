@@ -6,6 +6,7 @@ import LearnIcon from '../LearnIcon.vue'
 import LearnTranscript from '../LearnTranscript.vue'
 import AiLearningPanel from '../AiLearningPanel.vue'
 import { extractBilibiliBvid, extractYoutubeId, formatTs, platformTimeUrl } from '../learnApi.js'
+import { bilibiliEmbedUrl } from '../videoEmbed.js'
 import { fmt } from '../../api.js'
 import { useParseRequest } from '../../useParseRequest.js'
 import { account, openAuth } from '../../account.js'
@@ -40,11 +41,12 @@ const thumbUrl = computed(() => info.value?.thumbnail?.replace(/^http:\/\//, 'ht
 const bvid = computed(() => extractBilibiliBvid(info.value?.url || inputUrl.value))
 const youtubeId = computed(() => extractYoutubeId(info.value?.url || inputUrl.value))
 
-const bilibiliIframeSrc = computed(() => {
-  if (!bvid.value) return ''
-  const auto = embedAutoplay.value ? 1 : 0
-  return `https://player.bilibili.com/player.html?bvid=${encodeURIComponent(bvid.value)}&high_quality=1&danmaku=0&autoplay=${auto}&t=${embedSeekSec.value}`
-})
+const bilibiliIframeSrc = computed(() => bilibiliEmbedUrl({
+  bvid: bvid.value,
+  url: info.value?.url || inputUrl.value,
+  seconds: embedSeekSec.value,
+  autoplay: embedAutoplay.value,
+}))
 
 const youtubeIframeSrc = computed(() => {
   if (!youtubeId.value) return ''

@@ -36,11 +36,17 @@ const scrollTop = () => window.scrollTo({ top: 0, behavior: 'smooth' })
 const route = useRoute()
 onMounted(async () => {
   checkHealth()
+  const current = actionVersion
+  const sharedUrl = route.query.url ? String(route.query.url) : ''
   // AI summary requires login; guests opening a shared ?view=ai link fall back to the download view.
-  if (route.query.view === 'ai' && (await account.ensure(), account.loggedIn)) activeView.value = 'ai'
-  if (disposed) return
-  if (route.query.url) {
-    url.value = String(route.query.url)
+  if (route.query.view === 'ai') {
+    await account.ensure()
+    if (disposed || current !== actionVersion) return
+    if (account.loggedIn) activeView.value = 'ai'
+  }
+  if (disposed || current !== actionVersion) return
+  if (sharedUrl) {
+    url.value = sharedUrl
     submitWithView(activeView.value)
   }
 })
@@ -103,6 +109,7 @@ async function selectTab(view) {
   }
 }
 function clearInput() {
+  actionVersion++
   cancelParse()
   url.value = ''
   info.value = null

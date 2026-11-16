@@ -1,7 +1,8 @@
-import { account } from './account.js'
+import { getAuthSessionVersion, handleAuthRequired } from './account.js'
 import { streamLearnSSE } from './learning/learnApi.js'
 
 async function request(path, options = {}) {
+  const sessionVersion = getAuthSessionVersion()
   const res = await fetch(path, {
     headers: { 'Content-Type': 'application/json' },
     ...options,
@@ -13,7 +14,7 @@ async function request(path, options = {}) {
     error.code = data.code
     error.retryable = data.retryable
     error.status = res.status
-    if (data.code === 'AUTH_REQUIRED') account.markLoggedOut('expired')
+    if (data.code === 'AUTH_REQUIRED') handleAuthRequired(sessionVersion)
     throw error
   }
   return data
@@ -74,13 +75,14 @@ export function triggerDownload(href, filename = '') {
 
 /** Check JSON task metadata, then let the browser or download manager own the file transfer. */
 export async function downloadArchive(href, filename, signal) {
+  const sessionVersion = getAuthSessionVersion()
   const downloadUrl = new URL(href, window.location.href)
   const metadataUrl = new URL(downloadUrl)
   metadataUrl.pathname = metadataUrl.pathname.replace(/\/file$/, '')
   metadataUrl.search = ''
   const response = await fetch(metadataUrl, { signal, cache: 'no-store' })
   const task = await response.json().catch(() => ({}))
-  if (task.code === 'AUTH_REQUIRED') account.markLoggedOut('expired')
+  if (task.code === 'AUTH_REQUIRED') handleAuthRequired(sessionVersion)
   if (!response.ok) throw new Error(task.detail || `\u4e0b\u8f7d\u5931\u8d25\uff08${response.status}\uff09\uff0c\u8bf7\u91cd\u8bd5`)
   const subtitleBatch = metadataUrl.pathname.startsWith('/api/batch-transcriptions/')
   if (!['done', 'error'].includes(task.status)) throw new Error('\u8bf7\u7b49\u5f85\u4efb\u52a1\u5b8c\u6210\u540e\u518d\u4e0b\u8f7d')

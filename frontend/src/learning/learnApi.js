@@ -1,7 +1,8 @@
 /** Dedicated API & timestamp helpers for the AI video learning suite (/api/learn/*). */
-import { account } from '../account.js'
+import { getAuthSessionVersion, handleAuthRequired } from '../account.js'
 
 export async function streamLearnSSE(path, body, onEvent, signal) {
+  const sessionVersion = getAuthSessionVersion()
   const res = await fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -14,7 +15,7 @@ export async function streamLearnSSE(path, body, onEvent, signal) {
     const err = new Error(detail || `请求失败（${res.status}）`)
     err.code = data.code
     err.status = res.status
-    if (data.code === 'AUTH_REQUIRED') account.markLoggedOut('expired')
+    if (data.code === 'AUTH_REQUIRED') handleAuthRequired(sessionVersion)
     throw err
   }
   const reader = res.body.getReader()
@@ -63,6 +64,7 @@ export const learnApi = {
   summary: (body, onEvent, signal) => streamLearnSSE('/api/learn/summary', body, onEvent, signal),
   chat: (body, onEvent, signal) => streamLearnSSE('/api/learn/chat', body, onEvent, signal),
   async mindmap(body, signal) {
+    const sessionVersion = getAuthSessionVersion()
     const res = await fetch('/api/learn/mindmap', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -76,7 +78,7 @@ export const learnApi = {
       err.code = data.code
       err.asrEnabled = data.asr_enabled
       err.status = res.status
-      if (data.code === 'AUTH_REQUIRED') account.markLoggedOut('expired')
+      if (data.code === 'AUTH_REQUIRED') handleAuthRequired(sessionVersion)
       throw err
     }
     return data

@@ -5,6 +5,7 @@ import JobProgress from './JobProgress.vue'
 import TranscriptPanel from './TranscriptPanel.vue'
 import AiLearningPanel from '../learning/AiLearningPanel.vue'
 import { extractBilibiliBvid, extractYoutubeId, formatTs, platformTimeUrl } from '../learning/learnApi.js'
+import { bilibiliEmbedUrl } from '../learning/videoEmbed.js'
 import { api, fileUrl, fmt, pollJob, triggerDownload } from '../api.js'
 import { ui } from '../store.js'
 import { openAuth } from '../account.js'
@@ -103,11 +104,12 @@ const videoPreviewUrl = computed(() => {
 const bvid = computed(() => extractBilibiliBvid(props.info?.url || ''))
 const youtubeId = computed(() => extractYoutubeId(props.info?.url || ''))
 
-const bilibiliIframeSrc = computed(() => {
-  if (!bvid.value) return ''
-  const auto = embedAutoplay.value ? 1 : 0
-  return `https://player.bilibili.com/player.html?bvid=${encodeURIComponent(bvid.value)}&high_quality=1&danmaku=0&autoplay=${auto}&t=${embedSeekSec.value}`
-})
+const bilibiliIframeSrc = computed(() => bilibiliEmbedUrl({
+  bvid: bvid.value,
+  url: props.info?.url,
+  seconds: embedSeekSec.value,
+  autoplay: embedAutoplay.value,
+}))
 
 const youtubeIframeSrc = computed(() => {
   if (!youtubeId.value) return ''

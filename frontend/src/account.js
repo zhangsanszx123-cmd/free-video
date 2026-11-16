@@ -6,8 +6,19 @@ const channel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('f
 const STORAGE_EVENT_KEY = 'fv-auth-event'
 const LAST_USER_KEY = 'fv-auth-last-user'
 let identityGeneration = 0
+// Unlike identityGeneration (which also protects /me and profile refreshes), this identifies an
+// authentication session. A late AUTH_REQUIRED may end only the session that sent the request.
+let authSessionVersion = 0
+
+export function getAuthSessionVersion() { return authSessionVersion }
+
+export function handleAuthRequired(requestSessionVersion) {
+  if (requestSessionVersion !== authSessionVersion) return
+  account.markLoggedOut('expired')
+}
 
 async function call(path, { method = 'GET', body } = {}) {
+  const sessionVersion = getAuthSessionVersion()
   let res
   try {
     res = await fetch(path, {
@@ -27,7 +38,7 @@ async function call(path, { method = 'GET', body } = {}) {
     const error = new Error(detail || `请求失败（${res.status}）`)
     error.status = res.status
     error.code = data.code
-    if (data.code === 'AUTH_REQUIRED') account.markLoggedOut('expired')
+    if (data.code === 'AUTH_REQUIRED') handleAuthRequired(sessionVersion)
     throw error
   }
   return data
@@ -122,7 +133,7 @@ export const account = reactive({
     const pending = accountApi.me()
       .then(({ user }) => {
         if (generation !== identityGeneration) return this.user
-        setUser(user, false)
+        setUser(user, { broadcast: false })
         return user
       })
       .catch((e) => {
@@ -138,7 +149,7 @@ export const account = reactive({
 
   async login(body) {
     const { user, guest_claimed_seconds: claimed } = await accountApi.login(body)
-    setUser(user)
+    setUser(user, { sessionChanged: true })
     announceGuestUsage(claimed)
     return user
   },
@@ -147,14 +158,14 @@ export const account = reactive({
     const data = await accountApi.register(body)
     if (data.verification_required) return data
     const { user, guest_claimed_seconds: claimed } = data
-    setUser(user)
+    setUser(user, { sessionChanged: true })
     announceGuestUsage(claimed)
     return user
   },
 
   async verifyEmail(token) {
     const { user, guest_claimed_seconds: claimed } = await accountApi.verifyEmail(token)
-    setUser(user)
+    setUser(user, { sessionChanged: true })
     announceGuestUsage(claimed)
     return user
   },
@@ -169,7 +180,7 @@ export const account = reactive({
    */
   markLoggedOut(reason = '') {
     if (this.user) this.logoutReason = reason
-    setUser(null)
+    setUser(null, { sessionChanged: true })
   },
 
   updateUser(user) { setUser(user) },
@@ -200,11 +211,13 @@ function syncPerUserState(userId) {
   } catch { /* storage is optional */ }
 }
 
-function setUser(user, broadcast = true) {
+function setUser(user, { broadcast = true, sessionChanged = false } = {}) {
   identityGeneration++
   account._pending = null
   const before = account.user?.id ?? null
   const after = user?.id ?? null
+  const changedSession = sessionChanged || before !== after
+  if (changedSession) authSessionVersion++
   const initial = account.status === 'unknown'
   account.user = user || null
   account.status = user ? 'authed' : 'guest'
@@ -213,11 +226,11 @@ function setUser(user, broadcast = true) {
   // Remount pages only when a previous user's session ends or switches. Not on the first resolution after
   // page load, and not on guest -> login (so a pending action such as the home AI tab can resume in place).
   if (!initial && before !== null && before !== after) account.version += 1
-  if (broadcast) notifyOtherTabs(after)
+  if (broadcast) notifyOtherTabs(after, changedSession)
 }
 
-function notifyOtherTabs(userId) {
-  const message = { type: 'auth-changed', userId, at: Date.now() }
+function notifyOtherTabs(userId, sessionChanged) {
+  const message = { type: 'auth-changed', userId, sessionChanged, at: Date.now() }
   if (channel) channel.postMessage(message)
   else {
     try { localStorage.setItem(STORAGE_EVENT_KEY, JSON.stringify(message)) } catch { /* ignore */ }
@@ -226,6 +239,9 @@ function notifyOtherTabs(userId) {
 
 function onRemoteChange(message) {
   if (message?.type !== 'auth-changed') return
+  // Invalidate failures as soon as the notification arrives, before /me can finish. Older tabs
+  // omit sessionChanged, so conservatively treat their notifications as session changes.
+  if (message.sessionChanged !== false || message.userId !== (account.user?.id ?? null)) authSessionVersion++
   account.refresh(true)
 }
 
