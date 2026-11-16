@@ -12,15 +12,15 @@ ACCEPTED = {'ok': True, 'message': '如果该邮箱已注册，我们会发送�
 def request_reset(email: str):
     mail.check_config()
     user = store.get_email_credentials(email)
-    if not user:
+    if not user or user.get('status', 'active') != 'active':
         return ACCEPTED
     token = secrets.token_urlsafe(32)
     digest = auth.token_hash(token)
     now = store.utcnow()
     with store._cursor() as cur:
-        cur.execute('SELECT password_hash FROM users WHERE id=%s FOR UPDATE', (user['id'],))
+        cur.execute('SELECT password_hash,status FROM users WHERE id=%s FOR UPDATE', (user['id'],))
         row = cur.fetchone()
-        if not row:
+        if not row or row.get('status', 'active') != 'active':
             return ACCEPTED
         cur.execute('SELECT created_at FROM password_resets WHERE user_id=%s', (user['id'],))
         previous = cur.fetchone()
@@ -48,11 +48,11 @@ def reset(token: str, password: str):
         lookup = cur.fetchone()
         if not lookup:
             raise AccountError('INVALID_RESET_LINK', INVALID, 400)
-        cur.execute('SELECT id,email,password_hash,email_verified FROM users WHERE id=%s FOR UPDATE', (lookup['user_id'],))
+        cur.execute('SELECT id,email,password_hash,email_verified,status FROM users WHERE id=%s FOR UPDATE', (lookup['user_id'],))
         user = cur.fetchone()
         cur.execute('SELECT credential_hash,expires_at FROM password_resets WHERE user_id=%s AND token_hash=%s FOR UPDATE', (lookup['user_id'], digest))
         row = cur.fetchone()
-        if (not user or not row or row['expires_at'] <= store.utcnow()
+        if (not user or user.get('status', 'active') != 'active' or not row or row['expires_at'] <= store.utcnow()
                 or row['credential_hash'] != hashlib.sha256(user['password_hash'].encode()).hexdigest()):
             raise AccountError('INVALID_RESET_LINK', INVALID, 400)
         auth.validate_password(password, user['email'])

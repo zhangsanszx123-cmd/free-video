@@ -10,6 +10,8 @@
 
 界面更新：桌面导航仅保留登录，注册可从登录弹窗进入；账号菜单展示额度摘要，个人中心展示完整用量。支付弹窗默认选择支付宝，微信标注「暂未开放」；当前仍跳转收银台，站内二维码扫码待确认。验证与验收见 [前端审查验证记录](docs/frontend-audit-verification.md)。
 
+管理后台：`/admin/login` 独立登录，支持注册用户查询、详情与禁用/启用；超级管理员还可管理后台账号。首次账号通过本机隐藏密码输入初始化，见 [后台设置与使用](docs/admin-setup.md)。
+
 文档：[需求分析](docs/requirements.md) ｜ [方案设计](docs/design.md) ｜ [视频转文字配置与验收](docs/video-to-text-setup.md) ｜ [账号功能验收](docs/account-verification.md) ｜ [会员额度与本机管理](docs/membership-quota-plan.md) ｜ [会员与历史任务验收](docs/membership-verification.md) ｜ [ZPAY 支付配置与验收](docs/zpay-setup.md)
 
 ## 技术栈
@@ -60,6 +62,7 @@ cd ../backend
 | `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_USER` / `MYSQL_PASSWORD` / `MYSQL_DATABASE` | 账号数据库，默认 `127.0.0.1:3306`、`root`、`freevideo`；数据库不可用时账号接口返回 503，游客解析/下载也会受影响（游客名额记录在数据库中） |
 | `MYSQL_TEST_DATABASE` | pytest 专用库（会清空表，必须与 `MYSQL_DATABASE` 不同），留空则跳过账号测试 |
 | `AUTH_SESSION_DAYS` | 登录有效期，默认 7 天 |
+| `ADMIN_SESSION_HOURS` | 独立后台登录有效期，默认 8 小时；后台初始化见管理指南 |
 | `AUTH_REGISTER_RATE_LIMIT` / `AUTH_LOGIN_RATE_LIMIT` | 每 IP 注册（10 分钟）/ 登录（1 分钟）次数上限，默认 5 / 10 |
 | `AUTH_EMAIL_VERIFICATION_REQUIRED` | 默认 false；true 时注册必须通过邮件链接确认，本机已启用；先配置 SMTP |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_SSL` | 邮件服务器、端口、SSL；163 常用 `smtp.163.com` / `465` / `true` |

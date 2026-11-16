@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import Home from './pages/Home.vue'
 import { account, openAuth, safeRedirect } from './account.js'
+import { adminAuth, safeAdminRedirect } from './admin/adminAuth.js'
 
 const titles = {
   home: 'FreeVideo - 万能视频下载，1800+ 平台高清视频一键保存',
@@ -17,11 +18,22 @@ const titles = {
   history: '任务记录 - FreeVideo',
   payResult: '支付结果 - FreeVideo',
   notFound: '页面不存在 - FreeVideo',
+  adminLogin: '后台登录 - FreeVideo',
+  adminUsers: '注册用户管理 - FreeVideo 后台',
+  adminStaff: '后台账号管理 - FreeVideo 后台',
+  adminNotFound: '后台页面不存在 - FreeVideo',
 }
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
+    { path: '/admin/login', name: 'adminLogin', component: () => import('./admin/pages/AdminLogin.vue'), meta: { admin: true, adminGuestOnly: true } },
+    { path: '/admin', component: () => import('./admin/AdminLayout.vue'), meta: { admin: true, requiresAdmin: true }, children: [
+      { path: '', redirect: '/admin/users' },
+      { path: 'users', name: 'adminUsers', component: () => import('./admin/pages/AdminUsers.vue') },
+      { path: 'staff', name: 'adminStaff', component: () => import('./admin/pages/AdminStaff.vue'), meta: { superadmin: true } },
+      { path: ':pathMatch(.*)*', name: 'adminNotFound', component: () => import('./admin/pages/AdminNotFound.vue') },
+    ] },
     { path: '/', name: 'home', component: Home },
     // Guests may open these pages; the login dialog appears only when they actually start something.
     { path: '/batch', name: 'batch', component: () => import('./pages/Batch.vue') },
@@ -43,6 +55,16 @@ const router = createRouter({
 
 /** Route guard is only for UX; the backend validates the session on every protected API. */
 router.beforeEach(async (to, from) => {
+  if (to.meta.admin) {
+    await adminAuth.ensure()
+    if (to.meta.requiresAdmin && !adminAuth.loggedIn) return { name: 'adminLogin', query: { redirect: to.fullPath } }
+    if (to.meta.adminGuestOnly && adminAuth.loggedIn) return safeAdminRedirect(to.query.redirect)
+    if (to.meta.superadmin && !adminAuth.isSuperadmin) {
+      adminAuth.notice = '当前后台账号无权管理后台账号'
+      return { name: 'adminUsers' }
+    }
+    return true
+  }
   if (!to.meta.requiresAuth && !to.meta.guestOnly) return true
   await account.ensure()
   // status 'error' (account service unreachable) counts as logged out; the dialog shows the error and a retry.

@@ -1,5 +1,21 @@
 # FreeVideo 方案设计文档
 
+## 2026-11-16 独立管理后台
+
+- `admin_store.py/admin_auth.py/admin_api.py` 提供 `/api/admin/*` 的独立账号、8 小时会话、权限、注册用户查询和启停、后台账号管理。`freevideo_admin` Cookie 限 `/api/admin`，令牌仅存摘要，后台认证错误使用 `ADMIN_*`，不触发前台退出。
+- 新表 `admin_users/admin_sessions/admin_account_guard/admin_audit_logs` 由 schema 与现有初始化入口创建，不插入默认管理员。`python -m app.admin_auth bootstrap --username admin` 只允许首次创建；本机 `reset-password` 可恢复密码，两者均使用 getpass 隐藏输入，不接受密码命令行参数。
+- 所有管理写操作按 guard → 按 ID 排序的后台账号行 → 操作者会话 → 注册用户行/会话/邮件凭证顺序加锁，事务内复核最新权限，保障最后一个启用超级管理员。角色变化、密码重置及禁用撤销对应后台会话；审计不含密码、哈希或令牌。
+- `users` 增量添加独立的 `status/disabled_at/disabled_reason`，旧账号默认 active。登录及创建会话、邮件验证/恢复在用户锁内复核状态，游客用量认领同样检查；禁用清理所有前台会话与未使用邮件 token。通用会员结算、识别队列和支付入账不按禁用状态中断，保留在途结算与数据。
+- 列表每页 20 条，按状态筛选，动态 SQL 仅拼接固定字段并绑定参数；ASCII 邮箱/后台登录名做中文查询时先转 utf8mb4，避免排序规则冲突。所有响应采用字段白名单。
+- Vue `src/admin/` 使用独立身份、会话版本与跨标签通道；`App.vue/router.js` 隔离后台布局、守卫及错误重试，前台身份变化不会重建后台。普通管理员无后台账号页面权限；桌面表格、手机卡片，列表查询以 URL 中已应用条件为准，丢弃迟到响应。
+- 业务库迁移前后核对既有账号、会员、订单和套餐配置未改变，当前后端已重新加载；首次管理员仍由用户显式初始化。测试使用 `freevideo_admin_test` 与独立的 `freevideo_admin_ui_test:8015`，见 [后台验证](./admin-verification.md)。
+
+## 2026-11-16 本机真实支付测试
+
+- 通过现有 `membership.configure` 将业务库月卡调整为 50 分，保留现有 `monthly_seconds` 和所有功能上限，同时递增 revision；未修改默认种子或支付代码。订单复用同时比较金额和 revision，新下单不会复用旧价订单，旧订单快照不改。
+- 本机忽略配置设 `ZPAY_MOCK=false`，后端重新启动加载用户更新的凭证，继续使用 `https://zpayz.cn/submit.php` 和 `http://localhost:8000` 回跳来源。真实凭证不写入文档、前端或版本库。
+- 已验证公开套餐接口返回月卡 50 分、支付启用，模拟收银台返回 404；本地签名及金额检查通过，浏览器价格展示和游客登录衔接正常。没有提交真实付款，商户收款能力、结果页入账和会员开通由用户实付验收。
+
 ## 2026-11-16 请求会话、分享初始化与分 P 播放
 
 - `account.js` 新增独立会话版本及 `getAuthSessionVersion/handleAuthRequired`，区别于保护身份查询的 `identityGeneration` 和驱动页面重建的 `account.version`。登录、自动登录注册、邮箱验证登录、退出及身份改变递增会话版本；同身份的普通 me/资料更新不递增。

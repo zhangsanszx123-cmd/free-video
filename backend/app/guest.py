@@ -119,6 +119,9 @@ def claim(request: Request, user_id: int) -> int:
     try:
         with store._cursor() as cur:
             user = membership._lock_user(cur, user_id)
+            cur.execute('SELECT status FROM users WHERE id=%s', (user_id,))
+            if (cur.fetchone() or {}).get('status') != 'active':
+                return 0
             cur.execute("SELECT link_key,duration_seconds FROM guest_links WHERE subject=%s AND claimed_by IS NULL FOR UPDATE",
                         (subject,))
             rows = list(cur.fetchall())

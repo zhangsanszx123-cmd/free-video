@@ -12,7 +12,7 @@ from .errors import AccountError
 log = logging.getLogger("freevideo.accounts")
 SCHEMA_FILE = config.BASE_DIR / "sql" / "schema.sql"
 UNAVAILABLE = "账号服务暂不可用，请稍后再试"
-USER_FIELDS = "u.id, u.username, u.nickname, u.created_at, u.email, u.email_verified"
+USER_FIELDS = "u.id, u.username, u.nickname, u.created_at, u.email, u.email_verified, u.status"
 # (plan, AI videos per cycle, links per batch, longest single recognition in minutes, chat questions per day)
 DEFAULT_LIMITS = [("free", 10, 3, 8, 1), ("monthly", 300, 10, 30, 10), ("yearly", 500, 15, 60, 20)]
 
@@ -64,6 +64,14 @@ def init_schema():
         cur.execute("SHOW COLUMNS FROM users LIKE 'email'")
         if not cur.fetchone():
             cur.execute("ALTER TABLE users ADD COLUMN email VARCHAR(254) CHARACTER SET ascii COLLATE ascii_bin NULL, ADD COLUMN email_verified TINYINT NOT NULL DEFAULT 1, ADD UNIQUE KEY uq_users_email (email)")
+        for column, definition in (
+            ('status', "VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'active'"),
+            ('disabled_at', 'DATETIME(6) NULL'),
+            ('disabled_reason', "VARCHAR(500) NOT NULL DEFAULT ''"),
+        ):
+            cur.execute(f"SHOW COLUMNS FROM users LIKE '{column}'")
+            if not cur.fetchone():
+                cur.execute(f'ALTER TABLE users ADD COLUMN {column} {definition}')
         for column, definition in [('active_requests', 'INT UNSIGNED NOT NULL DEFAULT 0'), ('succeeded', 'TINYINT UNSIGNED NOT NULL DEFAULT 1')]:
             cur.execute(f"SHOW COLUMNS FROM ai_usage_videos LIKE '{column}'")
             if not cur.fetchone():
@@ -121,14 +129,20 @@ def get_password_hash(user_id: int) -> str | None:
     return row["password_hash"] if row else None
 
 
+def ensure_active_user(user: dict | None):
+    if user and user.get('status', 'active') != 'active':
+        raise AccountError('USER_DISABLED', '账号已被停用，请联系管理员', 403)
+
+
 def create_session(user_id: int, session: dict, expected_password_hash: str):
     with _cursor() as cur:
         # Serialize with password reset/update: an earlier successful password
         # check must not mint a session after that credential was revoked.
-        cur.execute('SELECT password_hash,email_verified FROM users WHERE id=%s FOR UPDATE', (user_id,))
+        cur.execute('SELECT password_hash,email_verified,status FROM users WHERE id=%s FOR UPDATE', (user_id,))
         user = cur.fetchone()
         if not user or user['password_hash'] != expected_password_hash or not user['email_verified']:
             raise AccountError('INVALID_CREDENTIALS', '邮箱或密码错误', 401)
+        ensure_active_user(user)
         cur.execute("DELETE FROM sessions WHERE expires_at <= %s", (utcnow(),))
         _insert_session(cur, user_id, session)
 
@@ -136,7 +150,7 @@ def create_session(user_id: int, session: dict, expected_password_hash: str):
 def session_user(token_hash: str) -> dict | None:
     with _cursor() as cur:
         cur.execute(f"SELECT {USER_FIELDS}, s.id AS session_id, s.last_seen_at FROM sessions s"
-                    " JOIN users u ON u.id = s.user_id WHERE s.token_hash = %s AND s.expires_at > %s",
+                    " JOIN users u ON u.id = s.user_id WHERE s.token_hash = %s AND s.expires_at > %s AND u.status='active'",
                     (token_hash, utcnow()))
         return cur.fetchone()
 

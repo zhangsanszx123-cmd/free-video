@@ -117,6 +117,7 @@ def resend_verification(req: LoginReq, request: Request):
     valid = auth.verify_password(req.password[:128], row['password_hash'] if row else auth._DUMMY_HASH)
     if not row or not valid or len(req.password) > 128:
         raise AccountError('INVALID_CREDENTIALS', '邮箱或密码错误', 400)
+    store.ensure_active_user(row)
     return email_verification.send(row)
 
 
@@ -143,6 +144,7 @@ def login(req: LoginReq, request: Request, response: Response):
         if key:
             auth.record_login_failure(key)
         raise AccountError("INVALID_CREDENTIALS", "邮箱或密码错误", 401)
+    store.ensure_active_user(row)
     if not row.get("email_verified"):
         raise AccountError("EMAIL_NOT_VERIFIED", "请先完成邮箱验证后再登录", 403)
     auth.clear_login_failures(key)

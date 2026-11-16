@@ -57,8 +57,9 @@ def send(user: dict):
     digest = auth.token_hash(token)
     now = store.utcnow()
     with store._cursor() as cur:
-        cur.execute('SELECT email_verified FROM users WHERE id=%s FOR UPDATE', (user['id'],))
+        cur.execute('SELECT email_verified,status FROM users WHERE id=%s FOR UPDATE', (user['id'],))
         row = cur.fetchone()
+        store.ensure_active_user(row)
         if not row or row['email_verified']:
             raise AccountError('EMAIL_ALREADY_VERIFIED', '该账号已验证，请直接登录', 409)
         cur.execute('SELECT created_at FROM email_verifications WHERE user_id=%s', (user['id'],))
@@ -90,6 +91,7 @@ def consume(token: str, session: dict):
             raise AccountError('INVALID_VERIFICATION_LINK', '验证链接无效或已过期，请重新发送', 400)
         cur.execute(f'SELECT {store.USER_FIELDS} FROM users u WHERE u.id=%s FOR UPDATE', (lookup['user_id'],))
         user = cur.fetchone()
+        store.ensure_active_user(user)
         cur.execute('SELECT expires_at FROM email_verifications WHERE user_id=%s AND token_hash=%s FOR UPDATE', (lookup['user_id'], digest))
         row = cur.fetchone()
         if not user or user['email_verified'] or not row or row['expires_at'] <= store.utcnow():

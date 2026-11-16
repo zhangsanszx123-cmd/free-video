@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import account_store, ai, asr, config, downloader, guest, tasks, transcription_auth, membership, payments, usage
+from . import account_store, admin_store, ai, asr, config, downloader, guest, tasks, transcription_auth, membership, payments, usage
 from .account_auth import require_user, current_user
 from .errors import AccountError, EmptySubtitles, NoSubtitles, TranscriptionError
 from .transcriptions import TranscriptionManager, read_subtitles, result_payload
@@ -36,6 +36,7 @@ async def lifespan(_: FastAPI):
     config.DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
     try:
         account_store.init_schema()
+        admin_store.init_schema()
         membership.seed()
     except AccountError:
         logging.warning("Account database unavailable; guest features keep working, account APIs return 503")
@@ -354,8 +355,10 @@ def job_file(job_id: str):
 
 from .ai_learning_api import router as learning_router  # noqa: E402
 from .account_api import router as account_router  # noqa: E402
+from .admin_api import router as admin_router  # noqa: E402
 app.include_router(learning_router, dependencies=[Depends(require_user)])
 app.include_router(account_router)
+app.include_router(admin_router)
 from .membership_api import router as membership_router  # noqa: E402
 app.include_router(membership_router)
 from .payment_api import router as payment_router  # noqa: E402

@@ -13,6 +13,7 @@ def tmp_downloads(tmp_path, monkeypatch, request):
         monkeypatch.setattr(config, name, '')
     monkeypatch.setattr(config, "DOWNLOAD_DIR", tmp_path / "downloads")
     monkeypatch.setattr(config, "ASR_DIR", tmp_path / "transcriptions")
+    monkeypatch.setattr(config, "DEEPSEEK_API_KEY", None)
     monkeypatch.setattr(config, "DASHSCOPE_API_KEY", None)
     # Never call the real ZPAY from tests; payment tests enable the in-process mock explicitly.
     for name, value in (("ZPAY_PID", None), ("ZPAY_KEY", None), ("ZPAY_MOCK", False),
@@ -27,12 +28,13 @@ def tmp_downloads(tmp_path, monkeypatch, request):
     batches = BatchTranscriptionManager(lambda: isolated)
     monkeypatch.setattr(main, 'batch_transcription_manager', batches)
     config.DOWNLOAD_DIR.mkdir()
-    from app import account_auth, account_store, membership
+    from app import account_auth, account_store, admin_store, membership
     from fastapi import Request
     account_auth.reset_limits()
     # Never touch the real accounts database from tests; test_accounts.py points it at MYSQL_TEST_DATABASE.
     monkeypatch.setattr(config, "MYSQL_DATABASE", config.MYSQL_TEST_DATABASE or "freevideo_test_unconfigured")
     monkeypatch.setattr(account_store, "init_schema", lambda: None)
+    monkeypatch.setattr(admin_store, "init_schema", lambda: None)
     # Feature tests run as a logged-in user; account tests remove this override to exercise real auth.
     def fake_current(req: Request):
         uid = req.cookies.get('fv-test-user')
@@ -45,7 +47,7 @@ def tmp_downloads(tmp_path, monkeypatch, request):
     main.app.dependency_overrides[account_auth.current_user] = fake_current
     # Legacy ASR tests exercise provider/cost behaviour with no database. Dedicated membership/account
     # tests retain the real repository and a configured MySQL test database.
-    if request.module.__name__.split('.')[-1] not in ('test_membership', 'test_accounts', 'test_payments', 'test_limits', 'test_guest'):
+    if request.module.__name__.split('.')[-1] not in ('test_membership', 'test_accounts', 'test_payments', 'test_limits', 'test_guest', 'test_admin'):
         for name in ('seed', 'create_record', 'persist', 'complete', 'reserve', 'alias_key', 'save_alias', 'hide', 'cleanup', 'recover'):
             monkeypatch.setattr(membership, name, lambda *a, **k: None)
         monkeypatch.setattr(membership, 'record', lambda *a, **k: None)

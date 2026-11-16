@@ -58,6 +58,7 @@ MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "")
 MYSQL_DATABASE = os.getenv("MYSQL_DATABASE", "freevideo")
 MYSQL_TEST_DATABASE = os.getenv("MYSQL_TEST_DATABASE") or None
 AUTH_SESSION_DAYS = int(os.getenv("AUTH_SESSION_DAYS", "7"))
+ADMIN_SESSION_HOURS = max(1, int(os.getenv("ADMIN_SESSION_HOURS", "8")))
 AUTH_REGISTER_RATE_LIMIT = int(os.getenv("AUTH_REGISTER_RATE_LIMIT", "5"))  # per IP per 10 minutes
 AUTH_LOGIN_RATE_LIMIT = int(os.getenv("AUTH_LOGIN_RATE_LIMIT", "10"))  # per IP per minute
 AUTH_EMAIL_VERIFICATION_REQUIRED = os.getenv("AUTH_EMAIL_VERIFICATION_REQUIRED", "false").lower() == "true"

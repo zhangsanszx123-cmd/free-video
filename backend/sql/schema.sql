@@ -12,6 +12,9 @@ CREATE TABLE IF NOT EXISTS users (
   username_key VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   email VARCHAR(254) CHARACTER SET ascii COLLATE ascii_bin NULL,
   email_verified TINYINT NOT NULL DEFAULT 1,
+  status VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'active',
+  disabled_at DATETIME(6) NULL,
+  disabled_reason VARCHAR(500) NOT NULL DEFAULT '',
   nickname VARCHAR(30) NOT NULL,
   password_hash VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   created_at DATETIME(6) NOT NULL,
@@ -21,6 +24,56 @@ CREATE TABLE IF NOT EXISTS users (
   UNIQUE KEY uq_users_username_key (username_key),
   UNIQUE KEY uq_users_email (email)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- Separate administrative identities. Site users and cookies never grant admin access.
+CREATE TABLE IF NOT EXISTS admin_users (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  username VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  username_key VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  nickname VARCHAR(30) NOT NULL,
+  password_hash VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  role VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  status VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'active',
+  created_at DATETIME(6) NOT NULL,
+  updated_at DATETIME(6) NOT NULL,
+  password_changed_at DATETIME(6) NOT NULL,
+  UNIQUE KEY uq_admin_users_username_key (username_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS admin_sessions (
+  id CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
+  token_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL UNIQUE,
+  admin_id BIGINT UNSIGNED NOT NULL,
+  created_at DATETIME(6) NOT NULL,
+  last_seen_at DATETIME(6) NOT NULL,
+  expires_at DATETIME(6) NOT NULL,
+  user_agent VARCHAR(255) NOT NULL DEFAULT '',
+  ip VARCHAR(45) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT '',
+  KEY idx_admin_sessions_user (admin_id),
+  KEY idx_admin_sessions_expiry (expires_at),
+  CONSTRAINT fk_admin_session_user FOREIGN KEY (admin_id) REFERENCES admin_users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Every administrative mutation takes this row first, including bootstrap/recovery CLI.
+CREATE TABLE IF NOT EXISTS admin_account_guard (
+  id TINYINT UNSIGNED NOT NULL PRIMARY KEY
+) ENGINE=InnoDB;
+
+-- Actor/target snapshots survive account removal. No credentials are stored here.
+CREATE TABLE IF NOT EXISTS admin_audit_logs (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  actor_id BIGINT UNSIGNED NULL,
+  actor_username VARCHAR(32) NOT NULL,
+  action VARCHAR(48) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  target_type VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  target_id BIGINT UNSIGNED NOT NULL,
+  target_label VARCHAR(254) NOT NULL,
+  detail JSON NOT NULL,
+  ip VARCHAR(45) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT '',
+  created_at DATETIME(6) NOT NULL,
+  KEY idx_admin_audit_target (target_type, target_id, created_at),
+  KEY idx_admin_audit_actor (actor_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS email_verifications (
   user_id BIGINT UNSIGNED NOT NULL PRIMARY KEY,
