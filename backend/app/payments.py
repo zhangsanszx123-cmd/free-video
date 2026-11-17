@@ -73,7 +73,7 @@ def _get(out_trade_no):
         return cur.fetchone()
 
 
-def create_order(uid: int, plan_code: str) -> dict:
+def create_order(uid: int, plan_code: str, expected_price_cents=None, expected_revision=None) -> dict:
     if not zpay.enabled():
         raise AccountError("PAYMENT_DISABLED", "在线支付暂未开放", 503)
     if plan_code not in PAID_PLANS:
@@ -81,10 +81,13 @@ def create_order(uid: int, plan_code: str) -> dict:
     account_auth.rate_limit(f"pay:{uid}", 10, 600, "下单过于频繁，请稍后再试")
     with store._cursor() as cur:
         membership._lock_user(cur, uid)
-        cur.execute("SELECT * FROM membership_plans WHERE code=%s", (plan_code,))
+        cur.execute("SELECT * FROM membership_plans WHERE code=%s FOR UPDATE", (plan_code,))
         plan = cur.fetchone()
         if not plan or not plan["months"] or not plan["price_cents"]:
             raise AccountError("PLAN_UNAVAILABLE", "套餐配置暂不可用", 503)
+        if ((expected_price_cents is not None and expected_price_cents != plan['price_cents'])
+                or (expected_revision is not None and expected_revision != plan['revision'])):
+            raise AccountError('PLAN_PRICE_CHANGED', '套餐配置已更新，请查看最新价格与额度后重新确认付款', 409)
         now = store.utcnow()
         kind, expires = outcome(_active(cur, uid), plan_code, plan["months"], now)
         if kind == "refused":

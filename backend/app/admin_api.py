@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Path, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import account_auth as passwords
-from . import admin_auth as auth, admin_store
+from . import admin_auth as auth, admin_store, membership, config
 from .errors import AccountError
 
 
@@ -53,6 +53,45 @@ class UserStatusReq(AdminBody):
     reason: str = Field(default='', max_length=500)
 
 
+class PlanPriceReq(AdminBody):
+    price_cents: int = Field(strict=True, ge=1, le=99999999)
+    revision: int = Field(strict=True, ge=1)
+
+
+class PlanLimitsReq(AdminBody):
+    revision: int = Field(strict=True, ge=1)
+    monthly_minutes: int = Field(strict=True, ge=1, le=525600)
+    ai_monthly_limit: int = Field(strict=True, ge=1, le=1000000)
+    chat_daily_limit: int = Field(strict=True, ge=1, le=1000000)
+    batch_max_links: int = Field(strict=True, ge=1)
+    asr_max_minutes: int = Field(strict=True, ge=1)
+
+
+@router.get('/plan-limits')
+def plan_limits(actor: dict = Depends(auth.require_admin)):
+    return {'plans': membership.plans(), 'ceilings': {
+        'batch_max_links': config.MAX_BATCH, 'asr_max_minutes': config.ASR_MAX_DURATION // 60}}
+
+
+@router.patch('/plan-limits/{code}')
+def update_plan_limits(req: PlanLimitsReq, request: Request, code: Literal['free', 'monthly', 'yearly'],
+                       actor: dict = Depends(auth.require_superadmin)):
+    auth.check_origin(request)
+    return {'plan': admin_store.set_plan_limits(actor, code, req.model_dump())}
+
+
+@router.get('/plans')
+def plans(actor: dict = Depends(auth.require_admin)):
+    return {'plans': [plan for plan in membership.plans() if plan['code'] in ('monthly', 'yearly')]}
+
+
+@router.patch('/plans/{code}/price')
+def plan_price(req: PlanPriceReq, request: Request, code: Literal['monthly', 'yearly'],
+               actor: dict = Depends(auth.require_superadmin)):
+    auth.check_origin(request)
+    return {'plan': admin_store.set_plan_price(actor, code, req.price_cents, req.revision)}
+
+
 @router.post('/auth/login')
 def login(req: LoginReq, request: Request, response: Response):
     auth.check_origin(request)
@@ -90,6 +129,12 @@ def users(page: int = Query(1, ge=1, le=100000), search: str = Query('', max_len
           status: Literal['all', 'active', 'disabled'] = 'all', verified: Literal['all', 'verified', 'pending'] = 'all',
           actor: dict = Depends(auth.require_admin)):
     return admin_store.list_users(page, search.strip(), status, verified)
+
+
+@router.get('/history')
+def history(page: int = Query(1, ge=1, le=100000), search: str = Query('', max_length=100),
+            status: Literal['all', 'active', 'done', 'error'] = 'all', actor: dict = Depends(auth.require_admin)):
+    return membership.history(None, page, search.strip(), status)
 
 
 @router.get('/users/{user_id}')

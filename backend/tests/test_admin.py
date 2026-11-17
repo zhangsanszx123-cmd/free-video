@@ -92,6 +92,183 @@ def user_status(client, uid, status, reason=''):
     return client.patch(f'/api/admin/users/{uid}/status', json={'status': status, 'reason': reason})
 
 
+def test_admin_history_reuses_existing_rows_and_preserves_site_isolation(superadmin):
+    from app.transcriptions import Transcription
+    client, _ = superadmin
+    first, user = site_user(name='historyfirst')
+    _, other = site_user(name='historysecond')
+    now = account_store.utcnow()
+    for index in range(25):
+        job = Transcription(f'{index:032x}', f"user:{user['id'] if index % 2 else other['id']}",
+                            f'{index:064x}', 'https://example.com/video', None, True,
+                            status=('done', 'error', 'queued', 'running')[index % 4], title=f'测试记录 {index:02}',
+                            result={'text': '文稿关键词', 'source': 'asr'})
+        membership.create_record(job)
+        membership.persist(job, {'platform': '测试平台', 'duration': 90})
+        query('UPDATE transcription_records SET created_at=%s WHERE id=%s', (now - timedelta(seconds=index), job.id))
+    query('UPDATE transcription_records SET hidden=TRUE WHERE id=%s', ('0' * 32,))
+    query('UPDATE transcription_records SET expires_at=%s WHERE id=%s', (now - timedelta(seconds=1), f'{1:032x}'))
+    assert browser().get('/api/admin/history').status_code == 401
+    assert first.get('/api/admin/history').status_code == 401
+    response = client.get('/api/admin/history')
+    assert response.headers['cache-control'] == 'no-store'
+    data = response.json()
+    assert data['total'] == 23 and len(data['items']) == 20
+    assert data['items'][0]['title'] == '测试记录 02'
+    assert {r['user_id'] for r in data['items']} == {user['id'], other['id']}
+    assert {r['user_email'] for r in data['items']} == {user['email'], other['email']}
+    assert all('fingerprint' not in row for row in data['items'])
+    assert len(client.get('/api/admin/history?page=2').json()['items']) == 3
+    assert client.get('/api/admin/history?search=测试记录 24').json()['total'] == 1
+    assert client.get('/api/admin/history?search=文稿关键词').json()['total'] == 23
+    active = client.get('/api/admin/history?status=active').json()
+    assert active['total'] == 12 and {r['status'] for r in active['items']} == {'queued', 'running'}
+    own = first.get('/api/account/history').json()
+    assert own['total'] == 11 and all('user_id' not in r and 'user_email' not in r for r in own['items'])
+    staff(client); operator = browser(); admin_login(operator, 'operator')
+    assert operator.get('/api/admin/history').json()['total'] == 23
+    assert client.get('/api/admin/history?status=invalid').status_code == 422
+    assert client.get('/api/admin/history?page=0').status_code == 422
+
+
+def limits_body(plan, **overrides):
+    return dict(revision=plan['revision'], monthly_minutes=plan['monthly_seconds'] // 60,
+                ai_monthly_limit=plan['ai_monthly_limit'], chat_daily_limit=plan['chat_daily_limit'],
+                batch_max_links=plan['batch_max_links'], asr_max_minutes=plan['asr_max_minutes'], **overrides)
+
+
+@pytest.mark.parametrize('code', ['free', 'monthly', 'yearly'])
+def test_live_plan_limits_preserve_usage_and_holds(superadmin, code):
+    from app import usage, transcriptions
+    from app.errors import TranscriptionError
+    client, _ = superadmin
+    _, user = site_user()
+    uid = user['id']
+    if code != 'free': membership.grant(user['email'], code)
+    membership.reserve(uid, 'spent', 100, 'a' * 64)
+    membership.finalize(uid, 'spent', 'settled')
+    membership.reserve(uid, 'held', 200, 'b' * 64)
+    before = membership.summary(uid)
+    original = next(p for p in membership.plans() if p['code'] == code)
+    body = dict(revision=original['revision'], monthly_minutes=1, ai_monthly_limit=1,
+                chat_daily_limit=1, batch_max_links=2, asr_max_minutes=1)
+    result = client.patch(f'/api/admin/plan-limits/{code}', json=body)
+    assert result.status_code == 200, result.text
+    assert result.json()['plan']['price_cents'] == original['price_cents']
+    current = membership.summary(uid)
+    assert current['limit_seconds'] == 60 and current['available_seconds'] == 0
+    assert current['used_seconds'] == before['used_seconds'] == 100
+    assert current['reserved_seconds'] == before['reserved_seconds'] == 200
+    assert main.batch_cap(uid)[0] == 2 and transcriptions.max_seconds(uid) == 60
+    with pytest.raises(TranscriptionError): membership.reserve(uid, 'new', 1, 'c' * 64)
+    ticket = usage.ai_begin(uid, 'https://example.com/1'); usage.ai_commit(ticket)
+    with pytest.raises(AccountError): usage.ai_begin(uid, 'https://example.com/2')
+    usage.chat_begin(uid)
+    with pytest.raises(AccountError): usage.chat_begin(uid)
+    body.update(revision=result.json()['plan']['revision'], monthly_minutes=10)
+    assert client.patch(f'/api/admin/plan-limits/{code}', json=body).status_code == 200
+    assert membership.summary(uid)['available_seconds'] == 300
+    membership.finalize(uid, 'held', 'settled')
+    after = membership.summary(uid)
+    assert after['used_seconds'] == 300 and after['reserved_seconds'] == 0
+    assert after['available_seconds'] == 300
+    assert len(query("SELECT * FROM admin_audit_logs WHERE action='plan.limits_update'")) == 2
+
+
+def test_plan_limit_permissions_validation_and_conflict(superadmin, monkeypatch):
+    client, _ = superadmin
+    original = membership.plans()[0]
+    body = limits_body(original)
+    assert browser().get('/api/admin/plan-limits').status_code == 401
+    assert len(client.get('/api/admin/plan-limits').json()['plans']) == 3
+    staff(client); operator = browser(); admin_login(operator, 'operator')
+    assert operator.get('/api/admin/plan-limits').status_code == 200
+    assert operator.patch('/api/admin/plan-limits/free', json=body).status_code == 403
+    assert client.patch('/api/admin/plan-limits/free', json=body, headers={'origin': 'https://evil.example'}).status_code == 403
+    for patch in ({'monthly_minutes': 0}, {'monthly_minutes': 1.5}, {'ai_monthly_limit': True},
+                  {'batch_max_links': config.MAX_BATCH + 1}, {'asr_max_minutes': config.ASR_MAX_DURATION // 60 + 1}, {'price_cents': 1}):
+        assert client.patch('/api/admin/plan-limits/free', json={**body, **patch}).status_code == 422
+    body['monthly_minutes'] += 1
+    assert client.patch('/api/admin/plan-limits/free', json=body).status_code == 200
+    assert client.patch('/api/admin/plan-limits/free', json=body).status_code == 409
+    def fail(*args, **kwargs): raise AccountError('AUDIT_FAILED', '审计失败', 503)
+    monkeypatch.setattr(admin_store, '_audit', fail)
+    body['revision'] += 1; body['monthly_minutes'] += 1
+    current = membership.plans()
+    assert client.patch('/api/admin/plan-limits/free', json=body).status_code == 503
+    assert membership.plans() == current
+
+
+def test_plan_price_permissions_and_audit(superadmin):
+    client, owner = superadmin
+    assert browser().get('/api/admin/plans').status_code == 401
+    plain, _ = site_user()
+    assert plain.get('/api/admin/plans').status_code == 401
+    staff(client)
+    operator = browser()
+    assert admin_login(operator, 'operator').status_code == 200
+    original = next(p for p in membership.plans() if p['code'] == 'monthly')
+    body = {'price_cents': 2990, 'revision': original['revision']}
+    assert operator.get('/api/admin/plans').status_code == 200
+    assert operator.patch('/api/admin/plans/monthly/price', json=body).status_code == 403
+    response = client.patch('/api/admin/plans/monthly/price', json=body)
+    assert response.status_code == 200, response.text
+    updated = response.json()['plan']
+    assert updated == {**original, 'price_cents': 2990, 'revision': original['revision'] + 1}
+    assert next(p for p in client.get('/api/plans').json()['plans'] if p['code'] == 'monthly') == updated
+    audit = query("SELECT * FROM admin_audit_logs WHERE action='plan.price_update'")
+    assert len(audit) == 1 and audit[0]['actor_id'] == owner['id']
+    detail = json.loads(audit[0]['detail'])
+    assert detail['before']['price_cents'] == original['price_cents']
+    assert detail['after']['price_cents'] == 2990
+    assert client.patch('/api/admin/plans/monthly/price', json=body).status_code == 409
+    assert client.patch('/api/admin/plans/monthly/price', json={'price_cents': 2990, 'revision': updated['revision']}).status_code == 200
+    assert len(query("SELECT * FROM admin_audit_logs WHERE action='plan.price_update'")) == 1
+
+
+@pytest.mark.parametrize('value', [0, -1, 100000000, 19.9, '1990', True])
+def test_invalid_plan_prices(superadmin, value):
+    client, _ = superadmin
+    assert client.patch('/api/admin/plans/monthly/price', json={'price_cents': value, 'revision': 1}).status_code == 422
+    assert not query("SELECT * FROM admin_audit_logs WHERE action='plan.price_update'")
+
+
+def test_plan_price_origin_and_scope(superadmin):
+    client, _ = superadmin
+    body = {'price_cents': 10900, 'revision': 1}
+    assert client.patch('/api/admin/plans/yearly/price', json=body, headers={'origin': 'https://evil.example'}).status_code == 403
+    assert client.patch('/api/admin/plans/free/price', json=body).status_code == 422
+    assert client.patch('/api/admin/plans/yearly/price', json={**body, 'monthly_seconds': 1}).status_code == 422
+    assert client.patch('/api/admin/plans/yearly/price', json=body).status_code == 200
+    assert next(p for p in membership.plans() if p['code'] == 'yearly')['price_cents'] == 10900
+
+
+def test_price_update_audit_failure_rolls_back(superadmin, monkeypatch):
+    client, _ = superadmin
+    original = membership.plans()
+    def fail(*args, **kwargs):
+        raise AccountError('AUDIT_FAILED', '审计失败', 503)
+    monkeypatch.setattr(admin_store, '_audit', fail)
+    assert client.patch('/api/admin/plans/monthly/price', json={'price_cents': 2990, 'revision': 1}).status_code == 503
+    assert membership.plans() == original
+
+
+def test_concurrent_plan_price_changes(superadmin):
+    client, _ = superadmin
+    barrier = threading.Barrier(2)
+    results = []
+    def update(amount):
+        other = browser()
+        other.cookies.update(client.cookies)
+        barrier.wait()
+        results.append(other.patch('/api/admin/plans/monthly/price', json={'price_cents': amount, 'revision': 1}).status_code)
+    threads = [threading.Thread(target=update, args=(amount,)) for amount in (2990, 3990)]
+    for thread in threads: thread.start()
+    for thread in threads: thread.join(timeout=10)
+    assert sorted(results) == [200, 409]
+    assert len(query("SELECT * FROM admin_audit_logs WHERE action='plan.price_update'")) == 1
+
+
 def test_bootstrap_is_explicit_and_never_overwrites_an_existing_account():
     assert query('SELECT id FROM admin_users') == ()
     first = admin_store.bootstrap('admin', 'First owner', account_auth.hash_password(ADMIN_PASSWORD))

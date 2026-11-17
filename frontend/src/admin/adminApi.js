@@ -1,6 +1,11 @@
 import { adminRequest } from './adminAuth.js'
 
 export const adminApi = {
+  history: (params, signal) => adminRequest(`/history?${new URLSearchParams(params)}`, { signal }),
+  planLimits: (signal) => adminRequest('/plan-limits', { signal }),
+  updatePlanLimits: (code, body, signal) => adminRequest(`/plan-limits/${code}`, { method: 'PATCH', body, signal }),
+  plans: (signal) => adminRequest('/plans', { signal }),
+  planPrice: (code, body, signal) => adminRequest(`/plans/${code}/price`, { method: 'PATCH', body, signal }),
   users: (params, signal) => adminRequest(`/users?${new URLSearchParams(params)}`, { signal }),
   user: (id, signal) => adminRequest(`/users/${encodeURIComponent(id)}`, { signal }),
   userStatus: (id, body, signal) => adminRequest(`/users/${encodeURIComponent(id)}/status`, { method: 'PATCH', body, signal }),

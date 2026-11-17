@@ -1,7 +1,7 @@
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-export function useAdminList(fetchList, withVerified = false) {
+export function useAdminList(fetchList, withVerified = false, statuses = ['active', 'disabled']) {
   const route = useRoute()
   const router = useRouter()
   const search = ref(''), status = ref('all'), verified = ref('all')
@@ -21,7 +21,7 @@ export function useAdminList(fetchList, withVerified = false) {
       const data = await fetchList({
         page: page.value,
         search: typeof route.query.search === 'string' ? route.query.search.trim() : '',
-        status: ['active', 'disabled'].includes(route.query.status) ? route.query.status : 'all',
+        status: statuses.includes(route.query.status) ? route.query.status : 'all',
         ...(withVerified ? { verified: ['verified', 'pending'].includes(route.query.verified) ? route.query.verified : 'all' } : {}),
       }, controller.signal)
       if (disposed || current !== version) return
@@ -48,7 +48,7 @@ export function useAdminList(fetchList, withVerified = false) {
   }
   watch(() => route.query, () => {
     search.value = typeof route.query.search === 'string' ? route.query.search : ''
-    status.value = ['active', 'disabled'].includes(route.query.status) ? route.query.status : 'all'
+    status.value = statuses.includes(route.query.status) ? route.query.status : 'all'
     verified.value = ['verified', 'pending'].includes(route.query.verified) ? route.query.verified : 'all'
     load()
   }, { immediate: true })

@@ -21,6 +21,9 @@ const titles = {
   adminLogin: '后台登录 - FreeVideo',
   adminUsers: '注册用户管理 - FreeVideo 后台',
   adminStaff: '后台账号管理 - FreeVideo 后台',
+  adminPricing: '会员价格管理 - FreeVideo 后台',
+  adminLimits: '套餐额度管理 - FreeVideo 后台',
+  adminHistory: '提取记录 - FreeVideo 后台',
   adminNotFound: '后台页面不存在 - FreeVideo',
 }
 
@@ -32,6 +35,9 @@ const router = createRouter({
       { path: '', redirect: '/admin/users' },
       { path: 'users', name: 'adminUsers', component: () => import('./admin/pages/AdminUsers.vue') },
       { path: 'staff', name: 'adminStaff', component: () => import('./admin/pages/AdminStaff.vue'), meta: { superadmin: true } },
+      { path: 'pricing', name: 'adminPricing', component: () => import('./admin/pages/AdminPricing.vue') },
+      { path: 'limits', name: 'adminLimits', component: () => import('./admin/pages/AdminLimits.vue') },
+      { path: 'history', name: 'adminHistory', component: () => import('./admin/pages/AdminHistory.vue') },
       { path: ':pathMatch(.*)*', name: 'adminNotFound', component: () => import('./admin/pages/AdminNotFound.vue') },
     ] },
     { path: '/', name: 'home', component: Home },

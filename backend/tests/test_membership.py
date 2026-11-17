@@ -123,7 +123,7 @@ def test_grant_config_snapshot_and_expiry(client, monkeypatch):
     paid = hold(user, 120)
     membership.finalize(user, paid, 'settled')
     membership.configure('monthly', 2990, 72000)
-    assert membership.summary(user)['limit_seconds'] == 36000
+    assert membership.summary(user)['limit_seconds'] == 72000
     assert membership.summary(user)['used_seconds'] == 120
     with pytest.raises(ValueError, match='已有有效会员'):
         membership.grant('alice@example.com', 'yearly')
@@ -136,14 +136,14 @@ def test_grant_config_snapshot_and_expiry(client, monkeypatch):
     assert membership.summary(user)['available_seconds'] == 108000
 
 
-def test_free_config_only_changes_next_cycle(client, monkeypatch):
+def test_free_config_changes_current_cycle(client, monkeypatch):
     monkeypatch.setattr(account_store, 'utcnow', lambda: datetime(2026, 11, 5))
     user = uid(client)
     assert membership.summary(user)['limit_seconds'] == 1800
     membership.configure('free', 0, 3600)
-    assert membership.summary(user)['limit_seconds'] == 1800
+    assert membership.summary(user)['limit_seconds'] == 3600
     monkeypatch.setattr(account_store, 'utcnow', lambda: datetime(2026, 12, 1))
-    assert membership.summary(user)['limit_seconds'] == 1800
+    assert membership.summary(user)['limit_seconds'] == 3600
     monkeypatch.setattr(account_store, 'utcnow', lambda: datetime(2026, 12, 5))
     assert membership.summary(user)['limit_seconds'] == 3600
 

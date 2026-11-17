@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, onUnmounted } from 'vue'
 import { membership, loadMembership, durationLabel } from '../membership.js'
 import Icon from './Icon.vue'
 defineProps({ compact: Boolean })
@@ -9,7 +9,19 @@ const date = value => value ? new Date(value).toLocaleString('zh-CN', {
   timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
   hour: '2-digit', minute: '2-digit', hour12: false,
 }) : ''
-onMounted(loadMembership)
+let timer
+function refreshVisible() { if (!document.hidden) loadMembership() }
+onMounted(() => {
+  loadMembership()
+  timer = setInterval(refreshVisible, 30000)
+  window.addEventListener('focus', refreshVisible)
+  document.addEventListener('visibilitychange', refreshVisible)
+})
+onUnmounted(() => {
+  clearInterval(timer)
+  window.removeEventListener('focus', refreshVisible)
+  document.removeEventListener('visibilitychange', refreshVisible)
+})
 </script>
 
 <template>

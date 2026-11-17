@@ -118,7 +118,7 @@ def require_admin(request: Request):
 
 def require_superadmin(admin: dict = Depends(require_admin)):
     if admin['role'] != 'superadmin':
-        raise AccountError('ADMIN_FORBIDDEN', '仅超级管理员可以管理后台账号', 403)
+        raise AccountError('ADMIN_FORBIDDEN', '仅超级管理员可以执行此操作', 403)
     return admin
 
 

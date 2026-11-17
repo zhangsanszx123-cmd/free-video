@@ -31,8 +31,36 @@ def uid(client, name='alice'):
     return res.json()['user']['id']
 
 
+def quote(plan='monthly'):
+    current = next(item for item in membership.plans() if item['code'] == plan)
+    return {'plan': plan, 'expected_price_cents': current['price_cents'], 'expected_revision': current['revision']}
+
+
+def test_checkout_requires_confirmed_current_price(client):
+    uid(client)
+    old = quote()
+    assert client.post('/api/pay/orders', json={'plan': 'monthly'}).status_code == 422
+    original = order(client)['order']
+    membership.configure('monthly', 2990, 36000)
+    for body in (old, {**old, 'expected_price_cents': 2990}, {**old, 'expected_revision': old['expected_revision'] + 1}):
+        response = client.post('/api/pay/orders', json=body)
+        assert response.status_code == 409 and response.json()['code'] == 'PLAN_PRICE_CHANGED'
+    assert len(query('SELECT * FROM payment_orders')) == 1
+    assert row(original['out_trade_no'])['price_cents'] == original['price_cents']
+    assert order(client)['order']['price_cents'] == 2990
+
+
+def test_old_order_keeps_price_but_uses_live_quota(client):
+    user = uid(client)
+    original = order(client)['order']
+    membership.configure('monthly', 2990, 600)
+    payments.fulfil(original['out_trade_no'], 'quota-live-trade', original['price_cents'], 'test')
+    assert row(original['out_trade_no'])['price_cents'] == 1990
+    assert membership.summary(user)['limit_seconds'] == 600
+
+
 def order(client, plan='monthly'):
-    res = client.post('/api/pay/orders', json={'plan': plan})
+    res = client.post('/api/pay/orders', json=quote(plan))
     assert res.status_code == 200, res.text
     return res.json()
 
@@ -76,14 +104,14 @@ def test_disabled_and_validation(client, monkeypatch):
     for method in ('wxpay', 'unknown'):
         assert client.post('/api/pay/orders', json={'plan': 'monthly', 'pay_type': method}).status_code == 422
     assert not query('SELECT out_trade_no FROM payment_orders')
-    explicit = client.post('/api/pay/orders', json={'plan': 'monthly', 'pay_type': 'alipay'})
+    explicit = client.post('/api/pay/orders', json={**quote(), 'pay_type': 'alipay'})
     assert explicit.status_code == 200 and explicit.json()['fields']['type'] == 'alipay'
     assert client.post('/api/pay/orders', json={'plan': 'free'}).status_code == 422
     assert make_client().post('/api/pay/orders', json={'plan': 'monthly'}).status_code == 401
-    assert client.post('/api/pay/orders', json={'plan': 'monthly'}, headers={'origin': 'https://evil.example'}).status_code == 403
+    assert client.post('/api/pay/orders', json=quote(), headers={'origin': 'https://evil.example'}).status_code == 403
     monkeypatch.setattr(config, 'SESSION_SECURE', True)  # mock is refused in production
     assert not zpay.enabled()
-    assert client.post('/api/pay/orders', json={'plan': 'monthly'}).json()['code'] == 'PAYMENT_DISABLED'
+    assert client.post('/api/pay/orders', json=quote()).json()['code'] == 'PAYMENT_DISABLED'
     assert client.get('/api/plans').json()['payment_enabled'] is False
     assert client.get('/api/pay/mock/api.php', params={'act': 'order'}).status_code == 404
 
@@ -208,7 +236,7 @@ def test_renew_upgrade_and_refund_rules(client):
     expected = membership.months_after(row(third)['paid_at'], 12) + remaining
     assert abs((ent(user)['expires_at'] - expected).total_seconds()) < 5
     assert ent(user)['plan_code'] == 'yearly' and membership.summary(user)['limit_seconds'] == 108000
-    res = client.post('/api/pay/orders', json={'plan': 'monthly'})
+    res = client.post('/api/pay/orders', json=quote())
     assert res.status_code == 409 and res.json()['code'] == 'PLAN_DOWNGRADE'
     # The stray monthly cashier is paid late: money is recorded, membership untouched, refund required.
     before = ent(user)['expires_at']

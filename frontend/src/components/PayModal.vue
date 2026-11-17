@@ -6,7 +6,8 @@ import { durationLabel, membership } from '../membership.js'
 import { purchaseKind, rememberOrder, submitToGateway } from '../payment.js'
 
 const props = defineProps({ plan: { type: Object, required: true } })
-const emit = defineEmits(['close'])
+const emit = defineEmits(['close', 'updated'])
+const quotedPlan = ref({ ...props.plan })
 const dialog = ref(null)
 const busy = ref(false)
 const error = ref('')
@@ -14,14 +15,14 @@ const payType = ref('alipay')
 let previousOverflow = ''
 
 const kind = computed(() => purchaseKind(membership.data, props.plan.code))
-const price = computed(() => (props.plan.price_cents / 100).toFixed(2))
-const period = computed(() => (props.plan.months === 12 ? '12 个月' : `${props.plan.months} 个月`))
+const price = computed(() => (quotedPlan.value.price_cents / 100).toFixed(2))
+const period = computed(() => (quotedPlan.value.months === 12 ? '12 个月' : `${quotedPlan.value.months} 个月`))
 const expiresText = computed(() => membership.data?.expires_at
   ? new Date(membership.data.expires_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : '')
 const effect = computed(() => ({
-  new: `支付成功后立即生效，有效期 ${period.value}，每月 ${durationLabel(props.plan.monthly_seconds)} 语音识别时长，按开通时间逐月重置，不叠加免费额度。`,
+  new: `支付成功后立即生效，有效期 ${period.value}，每月 ${durationLabel(quotedPlan.value.monthly_seconds)} 语音识别时长，按开通时间逐月重置，不叠加免费额度。`,
   renew: `在当前到期时间（${expiresText.value}）基础上顺延 ${period.value}，保留原额度周期，不提前重置。`,
-  upgrade: `立即升级为年卡：有效期 ${period.value}，月卡剩余有效期自动顺延到年卡之后；本期额度上限提升为 ${durationLabel(props.plan.monthly_seconds)}，保留已用量、预占和原重置日期。`,
+  upgrade: `立即升级为年卡：有效期 ${period.value}，月卡剩余有效期自动顺延到年卡之后；本期额度上限调整为 ${durationLabel(quotedPlan.value.monthly_seconds)}，保留已用量、预占和原重置日期。`,
   refused: '年卡有效期内不能购买月卡，可直接续费年卡。',
 }[kind.value]))
 
@@ -41,12 +42,22 @@ async function pay() {
   busy.value = true
   error.value = ''
   try {
-    const { order, action, fields } = await accountApi.createOrder(props.plan.code, payType.value)
+    const { order, action, fields } = await accountApi.createOrder(props.plan.code, payType.value, {
+      expected_price_cents: quotedPlan.value.price_cents, expected_revision: quotedPlan.value.revision,
+    })
     rememberOrder(order.out_trade_no)
     submitToGateway(action, fields)
     // Keep the lock: the browser is leaving for the cashier page.
   } catch (e) {
     error.value = e.message
+    if (e.code === 'PLAN_PRICE_CHANGED') {
+      try {
+        const data = await accountApi.plans()
+        const latest = data.plans.find(plan => plan.code === props.plan.code)
+        if (latest) quotedPlan.value = { ...latest }
+        emit('updated')
+      } catch { error.value = '套餐价格已变化，暂时无法取得最新价格，请关闭弹窗后重试' }
+    }
     busy.value = false
   }
 }

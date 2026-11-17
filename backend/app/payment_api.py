@@ -3,7 +3,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from . import payments, transcription_auth
@@ -16,13 +16,15 @@ router = APIRouter(tags=["payments"])
 class OrderReq(BaseModel):
     plan: Literal["monthly", "yearly"]
     pay_type: Literal['alipay'] = 'alipay'
+    expected_price_cents: int = Field(strict=True, ge=1, le=99999999)
+    expected_revision: int = Field(strict=True, ge=1)
 
 
 @router.post("/api/pay/orders")
 def create(req: OrderReq, request: Request, response: Response, user: dict = Depends(require_user)):
     transcription_auth.check_origin(request)
     response.headers["Cache-Control"] = "no-store"
-    return payments.create_order(user["id"], req.plan)
+    return payments.create_order(user["id"], req.plan, req.expected_price_cents, req.expected_revision)
 
 
 @router.get("/api/pay/orders")

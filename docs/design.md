@@ -1,5 +1,28 @@
 # FreeVideo 方案设计文档
 
+## 2026-11-17 后台现有历史汇总
+
+- `GET /api/admin/history {page,search,status}` 复用后台 require_admin 与 no-store，调用 `membership.history(None, ...)`；仅内部后台代码可传 None 汇总，前台接口仍从 require_user 取得实际用户 ID，不能由请求指定任意拥有者。
+- `membership.history` 复用原表及 quota_reservations 关联，保留过滤、搜索和分页；后台额外关联现有 users.email 返回 user_email，用于列表/详情展示邮箱；原 user_id 仅作内部归属，不展示。前台响应不增加邮箱字段，仍移除 user_id/fingerprint。排序补 id 降序以稳定同时间分页，不改 schema 或历史写入。
+- `AdminHistory.vue` 复用 AdminPagination/AdminDialog/useAdminList；useAdminList 允许传状态白名单，默认用户/管理员列表选项不变。详情只渲染 Vue 文本，原视频链接仅允许 http/https，无删除、导出或后台重新提交任务操作。
+
+## 2026-11-17 套餐额度独立管理
+
+- `GET /api/admin/plan-limits` 返回三档套餐及批量/单条识别实际系统上限；`PATCH /api/admin/plan-limits/{free|monthly|yearly}` 接收 revision、monthly_minutes、ai_monthly_limit、chat_daily_limit、batch_max_links、asr_max_minutes，全部严格正整数，拒绝额外字段。
+- monthly_minutes 上限 525600，AI/追问上限 1000000；另两项以当前 MAX_BATCH 和 ASR_MAX_DURATION/60 为上限。分钟转整数秒持久化。写操作复用 guard/actor/session→plan 行锁，复核权限和版本，五项原子更新并 revision+1，与 plan.limits_update 审计同事务；不变值不增版本。与价格共用套餐 revision，避免跨页面覆盖。
+- `membership._entitlement` 付费时长改取当前套餐；`_quota` 在个人用户锁下同步本期 limit_seconds，保留已用/预占/周期；历史周期不批量改写。`apply_membership` 保留购买快照，但实际额度按 live plan 初始化，防旧订单回写旧额度。CLI 配置同样立即生效。
+- `AdminLimits.vue` 使用桌面对照表、手机套餐切换、带范围和当前值的编辑框、仅列变化项的确认页；复用 AdminDialog，限制弹窗高度并内部滚动。QuotaCard 新增可见定时/焦点同步并卸载清理，账户身份隔离继续由 membership store 负责。无需新依赖或数据库表。
+- 旧报价冲突时支付弹窗同时刷新金额及权益说明；PLAN_PRICE_CHANGED 兼容错误码保留，提示改为套餐配置更新。价格和会员有效期的购买快照规则不变，时长快照不再用于实际额度计算。
+
+## 2026-11-17 后台改价与报价一致性
+
+- `GET /api/admin/plans` 允许后台管理员读取月卡/年卡；`PATCH /api/admin/plans/{monthly|yearly}/price {price_cents,revision}` 仅超级管理员可写。严格整数分（1–99999999）、版本正整数，拒绝其它字段。
+- `admin_store.set_plan_price` 按既有 guard→actor/session 锁后锁套餐，复核当前角色、会话和版本；只更新价格并 revision+1。审计同事务写入 admin_audit_logs，失败回滚；plan 审计目标标签 monthly/yearly，target_id 固定映射 1/2。相同价格不增版本或审计。
+- `AdminPricing.vue` 复用后台布局和 AdminDialog，支持校验、二次确认、保存反馈、重试和冲突提示，普通管理员只读。无需新增表或依赖。
+- `Pricing.vue` 对可见页面每 30 秒更新，聚焦/可见性变化时更新，打开支付弹窗前复查；合并重叠查询，离页清理监听和定时器。后台更新不移除已有套餐卡。
+- `PayModal` 固定展示报价；HTTP 下单新增必填 expected_price_cents、expected_revision，`payments.create_order` 锁套餐后比较报价，变化返回 HTTP 409 / PLAN_PRICE_CHANGED，不创建或复用订单。弹窗刷新金额后须再次点击付款。内部可信调用仍可省略报价，网页 API 不允许省略。
+- 订单快照、签名、回调、结算及有效期不变。外部直接调用 `/api/pay/orders` 的客户端也需提供上述必填字段，新前后端一并加载，旧页面请刷新。
+
 ## 2026-11-17 月卡价格恢复
 
 - 通过现有本机 CLI `python -m app.membership configure monthly --price-cents 1990 --monthly-seconds 36000` 更新业务配置，monthly revision=3；无需改代码或重启服务。

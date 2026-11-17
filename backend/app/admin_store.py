@@ -3,7 +3,7 @@ import json
 from datetime import timezone
 import re
 
-from . import account_store as store
+from . import account_store as store, config
 from .errors import AccountError
 
 ADMIN_FIELDS = 'a.id,a.username,a.nickname,a.role,a.status,a.created_at'
@@ -63,7 +63,7 @@ def _lock_actor(cur, actor, *, superadmin=False, target_id=None):
     if not cur.fetchone():
         raise _auth_required()
     if superadmin and current['role'] != 'superadmin':
-        raise AccountError('ADMIN_FORBIDDEN', '仅超级管理员可以管理后台账号', 403)
+        raise AccountError('ADMIN_FORBIDDEN', '仅超级管理员可以执行此操作', 403)
     return current, rows
 
 
@@ -82,6 +82,54 @@ def get_credentials(username_key):
     with store._cursor() as cur:
         cur.execute(f'SELECT {ADMIN_FIELDS},a.password_hash FROM admin_users a WHERE a.username_key=%s', (username_key,))
         return cur.fetchone()
+
+
+def set_plan_price(actor, code, price_cents, revision):
+    if code not in ('monthly', 'yearly') or type(price_cents) is not int or not 1 <= price_cents <= 99999999:
+        raise AccountError('ADMIN_INVALID_PRICE', '价格须为 0.01–999999.99 元，最多两位小数', 422)
+    with store._cursor() as cur:
+        _lock_actor(cur, actor, superadmin=True)
+        cur.execute('SELECT * FROM membership_plans WHERE code=%s FOR UPDATE', (code,))
+        plan = cur.fetchone()
+        if not plan:
+            raise AccountError('ADMIN_PLAN_NOT_FOUND', '套餐不存在', 404)
+        if plan['revision'] != revision:
+            raise AccountError('ADMIN_PLAN_CONFLICT', '套餐已被修改，请刷新后重新确认价格', 409)
+        if plan['price_cents'] == price_cents:
+            return plan
+        before = {key: plan[key] for key in ('price_cents', 'revision')}
+        cur.execute('UPDATE membership_plans SET price_cents=%s,revision=revision+1 WHERE code=%s', (price_cents, code))
+        plan.update(price_cents=price_cents, revision=revision + 1)
+        _audit(cur, actor, 'plan.price_update', 'plan', {'id': 1 if code == 'monthly' else 2, 'username': code},
+               before=before, after={key: plan[key] for key in ('price_cents', 'revision')})
+        return plan
+
+
+def set_plan_limits(actor, code, values):
+    ceilings = dict(monthly_minutes=525600, ai_monthly_limit=1000000, chat_daily_limit=1000000,
+                    batch_max_links=config.MAX_BATCH, asr_max_minutes=config.ASR_MAX_DURATION // 60)
+    if code not in ('free', 'monthly', 'yearly') or any(
+            type(values.get(k)) is not int or not 1 <= values[k] <= ceiling for k, ceiling in ceilings.items()):
+        raise AccountError('ADMIN_INVALID_LIMITS', '额度须为正整数，且不能超过页面标注的上限', 422)
+    changes = {k: values[k] for k in ceilings if k != 'monthly_minutes'}
+    changes['monthly_seconds'] = values['monthly_minutes'] * 60
+    with store._cursor() as cur:
+        _lock_actor(cur, actor, superadmin=True)
+        cur.execute('SELECT * FROM membership_plans WHERE code=%s FOR UPDATE', (code,))
+        plan = cur.fetchone()
+        if not plan:
+            raise AccountError('ADMIN_PLAN_NOT_FOUND', '套餐不存在', 404)
+        if plan['revision'] != values['revision']:
+            raise AccountError('ADMIN_PLAN_CONFLICT', '套餐已被修改，请刷新后重新确认额度', 409)
+        if all(plan[k] == value for k, value in changes.items()):
+            return plan
+        before = {k: plan[k] for k in (*changes, 'revision')}
+        columns = ','.join(f'{k}=%s' for k in changes)
+        cur.execute(f'UPDATE membership_plans SET {columns},revision=revision+1 WHERE code=%s', [*changes.values(), code])
+        plan.update(**changes, revision=plan['revision'] + 1)
+        _audit(cur, actor, 'plan.limits_update', 'plan', {'id': {'free': 0, 'monthly': 1, 'yearly': 2}[code], 'username': code},
+               before=before, after={k: plan[k] for k in before})
+        return plan
 
 
 def get_staff(admin_id):

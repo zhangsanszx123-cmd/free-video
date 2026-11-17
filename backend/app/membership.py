@@ -81,7 +81,11 @@ def _entitlement(cur, user_id, now=None):
                 (user_id, now, now))
     paid = cur.fetchone()
     if paid:
-        return dict(code=paid['plan_code'], name=paid['plan_name'], monthly_seconds=paid['monthly_seconds'],
+        cur.execute('SELECT monthly_seconds FROM membership_plans WHERE code=%s', (paid['plan_code'],))
+        live = cur.fetchone()
+        if not live:
+            raise AccountError('PLAN_UNAVAILABLE', '套餐配置暂不可用', 503)
+        return dict(code=paid['plan_code'], name=paid['plan_name'], monthly_seconds=live['monthly_seconds'],
                     price_cents=paid['price_cents'], revision=paid['revision'],
                     starts_at=paid['starts_at'], expires_at=paid['expires_at'])
     cur.execute("SELECT * FROM membership_plans WHERE code='free'")
@@ -104,7 +108,7 @@ def _quota(cur, user, entitlement, now):
                 (user_id, key, entitlement['code'], entitlement['monthly_seconds']))
     cur.execute('SELECT * FROM user_quota_periods WHERE user_id=%s AND period=%s FOR UPDATE', (user_id, key))
     quota = cur.fetchone()
-    if quota['plan_code'] != entitlement['code']:
+    if quota['plan_code'] != entitlement['code'] or quota['limit_seconds'] != entitlement['monthly_seconds']:
         cur.execute('UPDATE user_quota_periods SET plan_code=%s,limit_seconds=%s WHERE user_id=%s AND period=%s',
                     (entitlement['code'], entitlement['monthly_seconds'], user_id, key))
         quota.update(plan_code=entitlement['code'], limit_seconds=entitlement['monthly_seconds'])
@@ -272,9 +276,13 @@ def record(uid, job_id=None, fingerprint=None):
 
 
 def history(uid, page=1, search='', status='all'):
+    """Account history, or all visible history when trusted admin code passes uid=None."""
     with store._cursor() as cur:
-        where = 'r.user_id=%s AND r.hidden=FALSE AND r.expires_at>%s'
-        args = [uid, store.utcnow()]
+        where = 'r.hidden=FALSE AND r.expires_at>%s'
+        args = [store.utcnow()]
+        if uid is not None:
+            where += ' AND r.user_id=%s'
+            args.append(uid)
         if search:
             where += " AND (r.title LIKE %s OR JSON_UNQUOTE(JSON_EXTRACT(r.payload,'$.result.text')) LIKE %s)"
             args += ['%' + search + '%'] * 2
@@ -283,14 +291,17 @@ def history(uid, page=1, search='', status='all'):
             args += ['queued', 'running'] if status == 'active' else [status]
         cur.execute('SELECT COUNT(*) AS total FROM transcription_records r WHERE ' + where, args)
         total = cur.fetchone()['total']
-        cur.execute('SELECT r.*, q.state AS quota_state, q.seconds AS quota_seconds FROM transcription_records r '
-                    'LEFT JOIN quota_reservations q ON r.id=q.job_id WHERE ' + where +
-                    ' ORDER BY r.created_at DESC LIMIT 20 OFFSET %s', args + [(page - 1) * 20])
+        owner_select = ',u.email AS user_email' if uid is None else ''
+        owner_join = ' LEFT JOIN users u ON u.id=r.user_id ' if uid is None else ' '
+        cur.execute('SELECT r.*, q.state AS quota_state, q.seconds AS quota_seconds' + owner_select + ' FROM transcription_records r '
+                    'LEFT JOIN quota_reservations q ON r.id=q.job_id' + owner_join + 'WHERE ' + where +
+                    ' ORDER BY r.created_at DESC,r.id DESC LIMIT 20 OFFSET %s', args + [(page - 1) * 20])
         rows = list(cur.fetchall())
     for row in rows:
         row['payload'] = json.loads(row['payload']) if isinstance(row['payload'], str) else row['payload']
         row.pop('fingerprint', None)
-        row.pop('user_id', None)
+        if uid is not None:
+            row.pop('user_id', None)
         row['created_at'] = iso(row['created_at'])
         row['expires_at'] = iso(row['expires_at'])
     return {'items': rows, 'total': total, 'page': page}
@@ -380,7 +391,7 @@ def renewal_expiry(starts_at, expires_at, months):
 
 
 def apply_membership(cur, uid, plan, starts_at, expires_at):
-    """Write the entitlement snapshot; caller holds the user row lock.
+    """Write the purchase snapshot; caller holds the user row lock. Quotas use the live plan.
 
     A new membership starts a full Pro cycle. Renewal/upgrade retain the existing anchor
     and current Pro usage; free allowance is never added to the paid limit.
@@ -389,11 +400,8 @@ def apply_membership(cur, uid, plan, starts_at, expires_at):
     name = plan.get('name') or plan['plan_name']
     cur.execute('REPLACE INTO user_memberships VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
                 (uid, code, name, plan['price_cents'], plan['monthly_seconds'], plan['revision'], starts_at, expires_at))
-    quota, _, _ = _quota(cur, _lock_user(cur, uid),
-                         dict(code=code, monthly_seconds=plan['monthly_seconds'],
-                              starts_at=starts_at, expires_at=expires_at), store.utcnow())
-    cur.execute('UPDATE user_quota_periods SET limit_seconds=%s,plan_code=%s WHERE user_id=%s AND period=%s',
-                (plan['monthly_seconds'], code, uid, quota['period']))
+    now = store.utcnow()
+    _quota(cur, _lock_user(cur, uid), _entitlement(cur, uid, now), now)
 
 
 def configure(code, price_cents, monthly_seconds, **limit_values):
@@ -432,6 +440,6 @@ if __name__ == '__main__':
     elif args.command == 'configure':
         configure(args.plan, args.price_cents, args.monthly_seconds,
                   **{column: getattr(args, column) for column in LIMIT_COLUMNS})
-        print('套餐配置已更新；已有付费会员权益保持原快照')
+        print('套餐配置已更新；额度立即影响已有用户，已用量与预占保留')
     else:
         print(json.dumps(plans(), ensure_ascii=False))

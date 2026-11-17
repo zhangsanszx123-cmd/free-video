@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import Icon from '../components/Icon.vue'
 import FaqList from '../components/FaqList.vue'
 import PayModal from '../components/PayModal.vue'
@@ -13,17 +13,32 @@ const paymentEnabled = ref(false)
 const error = ref('')
 const loading = ref(false)
 const paying = ref(null)
-async function load() {
+let pendingLoad, disposed = false, syncTimer
+function load() {
+  if (pendingLoad) return pendingLoad
   loading.value = true
   error.value = ''
-  try {
-    const data = await accountApi.plans()
+  pendingLoad = accountApi.plans().then(data => {
+    if (disposed) return false
     plans.value = data.plans
     paymentEnabled.value = data.payment_enabled
-  } catch (e) { error.value = e.message }
-  finally { loading.value = false }
+    return true
+  }).catch(e => { if (!disposed) error.value = e.message; return false })
+    .finally(() => { loading.value = false; pendingLoad = null })
+  return pendingLoad
 }
-onMounted(() => { load(); account.ensure().then(() => loadMembership()) })
+function refreshVisible() { if (!document.hidden) load() }
+onMounted(() => {
+  load(); account.ensure().then(() => { if (!disposed) loadMembership() })
+  syncTimer = setInterval(refreshVisible, 30000)
+  window.addEventListener('focus', refreshVisible)
+  document.addEventListener('visibilitychange', refreshVisible)
+})
+onUnmounted(() => {
+  disposed = true; clearInterval(syncTimer)
+  window.removeEventListener('focus', refreshVisible)
+  document.removeEventListener('visibilitychange', refreshVisible)
+})
 watch(() => account.user?.id, (id) => { if (id) loadMembership() })
 
 const limitItems = (plan) => (plan.ai_monthly_limit === undefined ? [] : [
@@ -49,8 +64,11 @@ async function buy(plan) {
     return openAuth({ notice: '登录后即可开通会员', onSuccess: () => buy(plan) })
   }
   await loadMembership()
+  if (disposed) return
   if (membership.error) return ui.notify(membership.error)
-  if (kindOf(plan.code) !== 'refused') paying.value = plan
+  if (!(await load()) || disposed) return
+  const latest = plans.value.find(item => item.code === plan.code)
+  if (paymentEnabled.value && latest && kindOf(plan.code) !== 'refused') paying.value = { ...latest }
 }
 const faqs = computed(() => [
   { q: '不登录可以用吗？', a: '游客可免费解析并下载 2 个视频（含 MP3），字幕提取、语音识别、批量提取、AI 总结都需要登录。这 2 个视频的时长会在首次登录或注册后计入当月语音识别额度；登录后下载不限次数。' },
@@ -75,7 +93,7 @@ const faqs = computed(() => [
         <p class="mx-auto mt-4 max-w-2xl text-sm text-slate-600 sm:text-base">视频下载与平台字幕提取免费，按需选择语音识别时长。</p>
       </header>
       <p v-if="error" role="alert" class="mt-8 rounded-xl bg-rose-50 p-4 text-rose-700">{{ error }} <button type="button" class="min-h-11 px-4 font-bold" @click="load">重新加载</button></p>
-      <p v-if="loading" role="status" class="mt-10 text-center text-slate-500">正在加载套餐…</p>
+      <p v-if="loading && !plans.length" role="status" class="mt-10 text-center text-slate-500">正在加载套餐…</p>
       <div v-else class="mt-10 grid items-stretch gap-5 lg:grid-cols-3">
         <article v-for="plan in plans" :key="plan.code" class="relative flex flex-col rounded-3xl p-6 sm:p-8" :class="plan.code === 'yearly' ? 'bg-slate-950 text-white shadow-2xl shadow-indigo-500/30 ring-2 ring-amber-400 lg:-my-3 lg:py-11' : 'glass-card'">
           <span v-if="plan.code === 'yearly'" class="btn-gold absolute -top-3.5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full px-4 py-1 text-xs font-extrabold">推荐方案 · 按月发放</span>
@@ -107,5 +125,5 @@ const faqs = computed(() => [
       <h2 class="section-title mt-14 text-center">购买问题</h2><FaqList :items="faqs" class="mt-8" />
     </div>
   </section>
-  <PayModal v-if="paying" :plan="paying" @close="paying = null" />
+  <PayModal v-if="paying" :plan="paying" @close="paying = null" @updated="load" />
 </template>
