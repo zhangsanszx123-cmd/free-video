@@ -1,4 +1,5 @@
 <script setup>
+import Icon from '../../components/Icon.vue'
 import { onMounted, onUnmounted, ref } from 'vue'
 import AdminDialog from '../components/AdminDialog.vue'
 import { adminApi } from '../adminApi.js'
@@ -59,22 +60,19 @@ async function save() {
 
 <template>
   <section class="max-w-4xl">
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <div><h1 class="text-2xl font-extrabold">会员价格管理</h1><p class="mt-2 text-sm leading-6 text-slate-500">管理月卡与年卡售价，保存后自动同步至前台。</p></div>
-      <button class="min-h-11 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold disabled:opacity-50" :disabled="loading || busy" @click="load">{{ loading ? '刷新中…' : '刷新价格' }}</button>
-    </div>
-    <p v-if="!adminAuth.isSuperadmin" class="mt-5 rounded-xl bg-indigo-50 p-4 text-sm text-indigo-800">当前账号可查看价格，仅超级管理员可以修改。</p>
-    <p v-if="notice" role="status" class="mt-5 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-800">{{ notice }}</p>
-    <p v-if="error && !editing" role="alert" class="mt-5 rounded-xl bg-rose-50 p-4 text-sm text-rose-700">{{ error }}</p>
+    <header class="admin-page-head"><span class="admin-page-icon"><Icon :size="20" name="crown" /></span><div class="min-w-0"><h1 class="text-xl font-bold leading-tight tracking-tight text-slate-950">会员价格管理</h1><p class="mt-0.5 text-xs leading-5 text-slate-500 sm:text-sm">管理月卡与年卡售价，保存后自动同步至前台。</p></div><div class="ml-auto flex shrink-0 items-center gap-2"><button class="min-h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold disabled:opacity-50" :disabled="loading || busy" @click="load">{{ loading ? '刷新中…' : '刷新价格' }}</button></div></header>
+    <p v-if="!adminAuth.isSuperadmin" class="mt-2 rounded-lg bg-indigo-50 px-3 py-1.5 text-sm text-indigo-800">当前账号可查看价格，仅超级管理员可以修改。</p>
+    <p v-if="notice" role="status" class="mt-2 rounded-lg bg-emerald-50 px-3 py-1.5 text-sm text-emerald-800">{{ notice }}</p>
+    <p v-if="error && !editing" role="alert" class="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{{ error }}</p>
     <p v-if="loading && !plans.length" role="status" class="py-8 text-sm text-slate-500">正在加载价格…</p>
-    <div class="mt-6 grid gap-5 sm:grid-cols-2">
-      <article v-for="plan in plans" :key="plan.code" class="rounded-2xl border border-slate-200 bg-white p-6">
+    <div class="mt-4 grid gap-5 sm:grid-cols-2">
+      <article v-for="plan in plans" :key="plan.code" class="admin-card p-6">
         <h2 class="text-lg font-bold">{{ plan.name }}</h2>
-        <p class="mt-5 flex flex-wrap items-baseline gap-2"><span class="text-3xl font-extrabold tabular-nums">¥{{ (plan.price_cents / 100).toFixed(2) }}</span><span class="text-sm text-slate-500">/ {{ plan.code === 'monthly' ? '月' : '年' }}</span></p>
-        <button v-if="adminAuth.isSuperadmin" class="btn-primary mt-6 min-h-12 w-full rounded-xl font-bold" @click="edit(plan)">修改{{ plan.code === 'monthly' ? '月卡' : '年卡' }}价格</button>
+        <p class="mt-4 flex flex-wrap items-baseline gap-2"><span class="text-3xl font-extrabold tabular-nums">¥{{ (plan.price_cents / 100).toFixed(2) }}</span><span class="text-sm text-slate-500">/ {{ plan.code === 'monthly' ? '月' : '年' }}</span></p>
+        <button v-if="adminAuth.isSuperadmin" class="btn-primary mt-5 min-h-11 w-full rounded-xl font-bold" @click="edit(plan)">修改{{ plan.code === 'monthly' ? '月卡' : '年卡' }}价格</button>
       </article>
     </div>
-    <p class="mt-6 text-sm leading-7 text-slate-500">改价只影响新订单，已创建的订单保留原金额。会员有效期和使用额度保持原配置，已有会员权益不受影响。价格修改会记录操作者及修改前后的金额。</p>
+    <p class="mt-4 text-sm leading-6 text-slate-500">改价只影响新订单，已创建的订单保留原金额。会员有效期和使用额度保持原配置，已有会员权益不受影响。价格修改会记录操作者及修改前后的金额。</p>
     <AdminDialog v-if="editing" :title="confirmation === null ? `修改${editing.name}价格` : '确认修改价格'" :busy="busy" @close="editing = null">
       <form class="space-y-5" @submit.prevent="confirmation === null ? review() : save()">
         <template v-if="confirmation === null">

@@ -138,6 +138,7 @@ class AdminRealUI(unittest.TestCase):
         expect(self.page.locator('dialog[open]')).to_contain_text('admin-member-01@example.com')
         self.assertFalse(self.page.evaluate('document.documentElement.scrollWidth > window.innerWidth'))
         self.page.locator('dialog[open]').get_by_role('button', name='关闭对话框').click()
+        self.page.get_by_role('button', name='打开导航菜单').click()
         self.page.get_by_role('link', name='后台账号', exact=True).click()
         expect(self.page.get_by_role('button', name='新增后台账号', exact=True)).to_be_visible()
         self.assertFalse(self.page.evaluate('document.documentElement.scrollWidth > window.innerWidth'))

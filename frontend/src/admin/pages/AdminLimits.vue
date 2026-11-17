@@ -70,27 +70,24 @@ async function save() {
 
 <template>
   <section class="limits-page max-w-6xl">
-    <header class="flex flex-wrap items-start justify-between gap-4">
-      <div><h1 class="text-2xl font-extrabold tracking-tight text-slate-950">套餐额度管理</h1><p class="mt-2 text-sm leading-6 text-slate-500">对照三档套餐，调整用户可使用的功能额度。</p></div>
-      <button type="button" :disabled="loading || saving" class="flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 disabled:opacity-50" @click="load"><Icon name="refresh" :size="16" />{{ loading ? '刷新中…' : '刷新额度' }}</button>
-    </header>
-    <div class="mt-6 flex items-start gap-3 rounded-xl border border-amber-200/80 bg-amber-50/70 px-4 py-3.5">
-      <Icon name="alert" :size="18" class="mt-0.5 shrink-0 text-amber-600" /><p class="text-sm leading-6 text-amber-900"><strong class="font-semibold">保存即生效，包含已有用户。</strong> 已用量和预占时长保留；降低额度后，剩余额度最低为 0，不重置使用记录。</p>
+    <header class="admin-page-head"><span class="admin-page-icon"><Icon :size="20" name="clock" /></span><div class="min-w-0"><h1 class="text-xl font-bold leading-tight tracking-tight text-slate-950">套餐额度管理</h1><p class="mt-0.5 text-xs leading-5 text-slate-500 sm:text-sm">对照三档套餐，调整用户可使用的功能额度。</p></div><div class="ml-auto flex shrink-0 items-center gap-2"><button type="button" :disabled="loading || saving" class="flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 disabled:opacity-50" @click="load"><Icon name="refresh" :size="16" />{{ loading ? '刷新中…' : '刷新额度' }}</button></div></header>
+    <div class="mt-4 flex items-center gap-2.5 rounded-xl border border-amber-200/80 bg-amber-50/70 px-4 py-2.5">
+      <Icon name="alert" :size="18" class="shrink-0 text-amber-600" /><p class="text-sm leading-6 text-amber-900"><strong class="font-semibold">保存即生效，包含已有用户。</strong> 已用量和预占时长保留；降低额度后，剩余额度最低为 0，不重置使用记录。</p>
     </div>
-    <p v-if="!adminAuth.isSuperadmin" class="mt-4 text-sm text-slate-500">当前为只读模式，只有超级管理员可以修改额度。</p>
-    <p v-if="notice" role="status" class="mt-5 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800"><Icon name="check" :size="18" />{{ notice }}</p>
+    <p v-if="!adminAuth.isSuperadmin" class="mt-2 text-xs text-slate-500">当前为只读模式，只有超级管理员可以修改额度。</p>
+    <p v-if="notice" role="status" class="mt-2 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm text-emerald-800"><Icon name="check" :size="18" />{{ notice }}</p>
     <p v-if="error && !editing" role="alert" class="mt-5 rounded-xl bg-rose-50 p-4 text-sm text-rose-700">{{ error }}</p>
     <p v-if="loading && !plans.length" role="status" class="py-12 text-center text-sm text-slate-500">正在加载套餐额度…</p>
 
-    <div v-if="plans.length" class="mt-6 hidden overflow-hidden rounded-2xl border border-slate-200 bg-white md:block">
+    <div v-if="plans.length" class="admin-card mt-4 hidden overflow-hidden md:block">
       <table class="w-full table-fixed text-left">
-        <thead><tr class="border-b border-slate-200"><th class="w-[29%] px-6 py-6 align-bottom text-xs font-medium text-slate-500">功能与计量方式</th><th v-for="plan in plans" :key="plan.code" class="px-5 py-6 align-top" :class="{ 'bg-indigo-50/40': plan.code === 'monthly' }">
-          <span class="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-xl" :class="plan.code === 'free' ? 'bg-slate-100 text-slate-600' : plan.code === 'monthly' ? 'bg-indigo-100 text-indigo-600' : 'bg-amber-100 text-amber-700'"><Icon :name="plan.code === 'free' ? 'user' : 'crown'" :size="18" /></span>
-          <span class="block text-base font-bold text-slate-900">{{ plan.name }}</span>
+        <thead><tr class="border-b border-slate-200"><th class="w-[29%] px-6 py-4 align-bottom text-xs font-medium text-slate-500">功能与计量方式</th><th v-for="plan in plans" :key="plan.code" class="px-5 py-4 align-top" :class="{ 'bg-indigo-50/40': plan.code === 'monthly' }">
+          <span class="mr-2.5 inline-flex h-8 w-8 items-center justify-center rounded-xl align-middle" :class="plan.code === 'free' ? 'bg-slate-100 text-slate-600' : plan.code === 'monthly' ? 'bg-indigo-100 text-indigo-600' : 'bg-amber-100 text-amber-700'"><Icon :name="plan.code === 'free' ? 'user' : 'crown'" :size="17" /></span>
+          <span class="align-middle text-base font-bold text-slate-900">{{ plan.name }}</span>
           <span class="mt-1 block text-xs font-normal text-slate-500">{{ plan.code === 'free' ? '基础使用额度' : plan.code === 'monthly' ? '按月订阅额度' : '年卡每月发放' }}</span>
         </th></tr></thead>
-        <tbody><tr v-for="field in fields" :key="field.key" class="border-b border-slate-100 last:border-0"><th class="px-6 py-5 font-normal"><span class="block text-sm font-semibold text-slate-700">{{ field.label }}</span><span class="mt-1 block text-xs text-slate-500">{{ field.unit }}</span></th><td v-for="plan in plans" :key="plan.code" class="px-5 py-5" :class="{ 'bg-indigo-50/40': plan.code === 'monthly' }"><span class="text-lg font-bold tabular-nums" :class="plan.code === 'monthly' ? 'text-indigo-700' : 'text-slate-800'">{{ valueLabel(plan, field) }}</span></td></tr></tbody>
-        <tfoot v-if="adminAuth.isSuperadmin"><tr class="border-t border-slate-200"><td class="px-6 py-5 text-xs leading-5 text-slate-500">每次编辑一个套餐<br />确认变更后统一保存</td><td v-for="plan in plans" :key="plan.code" class="px-5 py-5" :class="{ 'bg-indigo-50/40': plan.code === 'monthly' }"><button class="min-h-11 w-full rounded-lg border border-indigo-200 bg-white px-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-50" @click="edit(plan)">编辑{{ plan.name.replace('会员', '') }}额度</button></td></tr></tfoot>
+        <tbody><tr v-for="field in fields" :key="field.key" class="border-b border-slate-100 last:border-0"><th class="px-6 py-3.5 font-normal"><span class="block text-sm font-semibold text-slate-700">{{ field.label }}</span><span class="mt-0.5 block text-xs text-slate-500">{{ field.unit }}</span></th><td v-for="plan in plans" :key="plan.code" class="px-5 py-3.5" :class="{ 'bg-indigo-50/40': plan.code === 'monthly' }"><span class="text-base font-bold tabular-nums" :class="plan.code === 'monthly' ? 'text-indigo-700' : 'text-slate-800'">{{ valueLabel(plan, field) }}</span></td></tr></tbody>
+        <tfoot v-if="adminAuth.isSuperadmin"><tr class="border-t border-slate-200"><td class="px-6 py-3.5 text-xs leading-5 text-slate-500">每次编辑一个套餐，确认后统一保存</td><td v-for="plan in plans" :key="plan.code" class="px-5 py-3.5" :class="{ 'bg-indigo-50/40': plan.code === 'monthly' }"><button class="min-h-10 w-full rounded-xl border border-indigo-200 bg-white px-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-50" @click="edit(plan)">编辑{{ plan.name.replace('会员', '') }}额度</button></td></tr></tfoot>
       </table>
     </div>
 

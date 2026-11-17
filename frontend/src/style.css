@@ -146,3 +146,62 @@ html { scroll-padding-top: 80px; }
 .prose-ai p { @apply my-2 leading-relaxed; }
 .prose-ai blockquote { @apply border-l-4 border-indigo-200 pl-3 text-slate-600; }
 .prose-ai strong { @apply text-slate-900; }
+
+/* ===== Admin console (visual layer only) ===== */
+.admin-bg {
+  min-height: 100vh;
+  background-color: #f4f6fb;
+  background-image:
+    radial-gradient(900px 420px at 85% -80px, rgba(99, 102, 241, .10), transparent 70%),
+    radial-gradient(700px 360px at 0 0, rgba(37, 99, 235, .06), transparent 70%);
+  color: #0f172a;
+}
+.admin-sidebar {
+  background: linear-gradient(180deg, #1e1b4b 0%, #26226b 55%, #2e2a85 100%);
+  color: #c7d2fe;
+  box-shadow: 4px 0 24px -12px rgba(30, 27, 75, .5);
+}
+.admin-nav-item {
+  position: relative; display: flex; align-items: center; gap: .75rem; min-height: 2.9rem;
+  padding: 0 1rem; border-radius: .85rem; font-size: .875rem; font-weight: 600; color: #c7d2fe;
+  transition: background-color .2s, color .2s;
+}
+.admin-nav-item:hover { background: rgba(255, 255, 255, .08); color: #fff; }
+.admin-nav-item--active { background: linear-gradient(135deg, rgba(99, 102, 241, .55), rgba(139, 92, 246, .38)); color: #fff; box-shadow: inset 0 1px rgba(255, 255, 255, .15); }
+.admin-nav-item--active::before { content: ''; position: absolute; left: -.5rem; top: 22%; bottom: 22%; width: 4px; border-radius: 4px; background: #a5b4fc; }
+.admin-topbar { background: rgba(255, 255, 255, .82); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); border-bottom: 1px solid rgba(226, 232, 240, .9); }
+.admin-card {
+  background: #fff; border: 1px solid rgba(226, 232, 240, .9); border-radius: 1.1rem;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .04), 0 12px 28px -20px rgba(49, 46, 129, .28);
+}
+.admin-page-head { display: flex; align-items: center; gap: .85rem; }
+.admin-page-icon {
+  display: flex; height: 2.375rem; width: 2.375rem; flex: none; align-items: center; justify-content: center;
+  border-radius: .75rem; color: #fff; background-image: linear-gradient(135deg, #2563eb, #6366f1 50%, #8b5cf6);
+  box-shadow: 0 8px 18px -8px rgba(99, 102, 241, .65);
+}
+.admin-scroll { scrollbar-width: none; -ms-overflow-style: none; }
+.admin-scroll::-webkit-scrollbar { display: none; }
+.admin-table thead { background: linear-gradient(180deg, #f8faff, #f1f4fb); }
+.admin-table tbody tr { transition: background-color .15s; }
+.admin-table tbody tr:hover { background: #f5f7ff; }
+.admin-badge { display: inline-flex; align-items: center; gap: .35rem; border-radius: 999px; padding: .2rem .65rem; font-size: .75rem; font-weight: 600; white-space: nowrap; }
+.admin-badge::before { content: ''; height: .4rem; width: .4rem; border-radius: 50%; background: currentColor; }
+.admin-badge--ok { background: #ecfdf5; color: #047857; }
+.admin-badge--warn { background: #fffbeb; color: #b45309; }
+.admin-badge--bad { background: #fff1f2; color: #be123c; }
+.admin-badge--muted { background: #f1f5f9; color: #475569; }
+.admin-badge--brand { background: #eef2ff; color: #4338ca; }
+.admin-badge--gold { background: #fffbeb; color: #b45309; box-shadow: inset 0 0 0 1px #fde68a; }
+.admin-dialog { animation: admin-pop .22s ease; border: 1px solid rgba(226, 232, 240, .9); }
+.admin-dialog::backdrop { background: rgb(15 23 42 / .5); backdrop-filter: blur(5px); }
+@keyframes admin-pop { from { opacity: 0; transform: translateY(8px) scale(.97); } to { opacity: 1; transform: none; } }
+.admin-skeleton { border-radius: .6rem; background: linear-gradient(90deg, #eef1f8 25%, #f7f9fd 50%, #eef1f8 75%); background-size: 200% 100%; animation: admin-shimmer 1.3s ease infinite; }
+@keyframes admin-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.admin-login-art {
+  position: relative; isolation: isolate; overflow: hidden; color: #fff;
+  background: linear-gradient(135deg, #1e1b4b 0%, #3730a3 45%, #6d3be8 100%);
+}
+.admin-login-art::before { content: ''; position: absolute; inset: 0; z-index: -1; background-image: radial-gradient(circle, rgb(255 255 255 / .14) .9px, transparent 1.2px); background-size: 18px 18px; }
+.admin-login-art::after { content: ''; position: absolute; right: -90px; bottom: -110px; z-index: -1; height: 340px; width: 340px; border-radius: 50%; border: 36px solid rgb(255 255 255 / .06); box-shadow: 0 0 0 36px rgb(255 255 255 / .03); }
+@media (prefers-reduced-motion: reduce) { .admin-dialog, .admin-skeleton { animation: none; } }
