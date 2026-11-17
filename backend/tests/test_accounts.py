@@ -317,20 +317,23 @@ def test_concurrent_register_only_one_wins():
     assert len(query("SELECT id FROM users WHERE username_key='racer'")) == 1
 
 
-def test_login_success_and_uniform_failure(client):
+def test_login_success_and_distinct_failure(client):
     register(make_client())
     wrong = login(client, password="wrong password")
     unknown = login(client, username="nobody")
     assert wrong.status_code == unknown.status_code == 401
-    assert wrong.json()["detail"] == unknown.json()["detail"] == "邮箱或密码错误"
+    assert wrong.json()["detail"] == "密码错误"
+    assert unknown.json()["code"] == "EMAIL_NOT_REGISTERED"
+    assert unknown.json()["detail"] == "该邮箱尚未注册，请先注册"
     res = login(client, username="ALICE")
     assert res.status_code == 200 and res.json()["user"]["email"] == "alice@example.com"
     assert client.get("/api/auth/me").json()["user"]["email"] == "alice@example.com"
 
 
-def test_login_lockout_after_failures(client):
+def test_login_lockout_after_failures(client, monkeypatch):
+    monkeypatch.setattr(config, 'AUTH_LOGIN_RATE_LIMIT', 100)
     register(make_client())
-    for _ in range(5):
+    for _ in range(10):
         assert login(client, password="wrong password").status_code == 401
     res = login(client)
     assert res.status_code == 429 and "15 分钟" in res.json()["detail"]

@@ -9,6 +9,11 @@ import { account, authModal, closeAuth } from '../account.js'
 
 const router = useRouter()
 const dialog = ref(null)
+const registrationEmail = ref('')
+function switchToRegister(email) {
+  registrationEmail.value = email || ''
+  authModal.tab = 'register'
+}
 const tabs = [['login', '登录'], ['register', '注册'], ['forgot', '找回密码']]
 let previousOverflow = ''
 let backdropPressed = false
@@ -53,6 +58,7 @@ watch(() => authModal.open, async (open) => {
   if (authModal.open !== open) return
   backdropPressed = false
   if (open) {
+    registrationEmail.value = ''
     previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     if (!dialog.value?.open) dialog.value?.showModal()
@@ -107,10 +113,10 @@ function onSuccess() {
       </div>
 
       <LoginForm v-if="authModal.tab === 'login'" key="login" :notice="authModal.notice" autofocus
-        @success="onSuccess" @switch="authModal.tab = 'register'" />
-      <RegisterForm v-else-if="authModal.tab === 'register'" key="register" :notice="authModal.notice" autofocus
+        @success="onSuccess" @switch="switchToRegister" />
+      <RegisterForm v-else-if="authModal.tab === 'register'" key="register" :notice="authModal.notice" :initial-email="registrationEmail" autofocus
         @success="onSuccess" @switch="authModal.tab = 'login'" />
-      <ForgotPasswordForm v-else key="forgot" autofocus @login="authModal.tab = 'login'" />
+      <ForgotPasswordForm v-else key="forgot" autofocus />
     </div>
   </dialog>
 </template>

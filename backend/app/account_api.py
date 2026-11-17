@@ -143,7 +143,9 @@ def login(req: LoginReq, request: Request, response: Response):
     if not (row and valid):
         if key:
             auth.record_login_failure(key)
-        raise AccountError("INVALID_CREDENTIALS", "邮箱或密码错误", 401)
+        if not row:
+            raise AccountError("EMAIL_NOT_REGISTERED", "该邮箱尚未注册，请先注册", 401)
+        raise AccountError("INVALID_CREDENTIALS", "密码错误", 401)
     store.ensure_active_user(row)
     if not row.get("email_verified"):
         raise AccountError("EMAIL_NOT_VERIFIED", "请先完成邮箱验证后再登录", 403)

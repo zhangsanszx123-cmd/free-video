@@ -110,7 +110,7 @@ def rate_limit(key: str, limit: int, window: float, message: str = "操作过于
         _hits.setdefault(key, []).append(now)
 
 
-LOGIN_FAILURE_LIMIT, LOGIN_FAILURE_WINDOW = 5, 900
+LOGIN_FAILURE_LIMIT, LOGIN_FAILURE_WINDOW = 10, 900
 
 
 def login_blocked(username_key: str) -> bool:

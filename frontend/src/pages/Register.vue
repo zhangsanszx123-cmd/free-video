@@ -14,6 +14,6 @@ const toLogin = () => router.replace({ name: 'login', query: route.query.redirec
 
 <template>
   <AuthShell title="创建账号" subtitle="使用常用邮箱和密码创建账号">
-    <RegisterForm autofocus @success="router.replace(redirect)" @switch="toLogin" />
+    <RegisterForm :initial-email="typeof route.query.email === 'string' ? route.query.email : ''" autofocus @success="router.replace(redirect)" @switch="toLogin" />
   </AuthShell>
 </template>

@@ -10,7 +10,7 @@ const route = useRoute()
 const router = useRouter()
 const redirect = computed(() => safeRedirect(route.query.redirect))
 const notice = computed(() => (route.query.redirect ? '请先登录后使用该功能' : ''))
-const toRegister = () => router.replace({ name: 'register', query: route.query.redirect ? { redirect: redirect.value } : {} })
+const toRegister = (email) => router.replace({ name: 'register', query: { ...(route.query.redirect ? { redirect: redirect.value } : {}), ...(email ? { email } : {}) } })
 </script>
 
 <template>

@@ -1,8 +1,9 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import FormField from './FormField.vue'
 import Icon from './Icon.vue'
 import { account, accountApi, rules, authModal, openAuth } from '../account.js'
+import { useVerificationCooldown } from '../useVerificationCooldown.js'
 
 const props = defineProps({ notice: { type: String, default: '' }, autofocus: { type: Boolean, default: false } })
 const emit = defineEmits(['success', 'switch'])
@@ -10,8 +11,11 @@ const email = ref('')
 const password = ref('')
 const submitting = ref(false)
 const error = ref('')
+const needsRegistration = ref(false)
+watch(email, () => { error.value = ''; needsRegistration.value = false; needsVerification.value = false; sent.value = false })
 const needsVerification = ref(false)
 const sent = ref(false)
+const { remaining, start: startCooldown } = useVerificationCooldown(() => email.value)
 function forgot() {
   if (authModal.open) authModal.tab = 'forgot'
   else openAuth({ tab: 'forgot' })
@@ -20,6 +24,8 @@ function forgot() {
 async function submit() {
   if (submitting.value) return
   error.value = ''
+  needsRegistration.value = false
+  needsVerification.value = false
   if (!email.value.trim() || !password.value) {
     error.value = '请输入邮箱和密码'
     return
@@ -29,6 +35,7 @@ async function submit() {
   try {
     emit('success', await account.login({ email: email.value.trim(), password: password.value }))
   } catch (e) {
+    needsRegistration.value = e.code === 'EMAIL_NOT_REGISTERED'
     if (e.code === 'EMAIL_NOT_VERIFIED') needsVerification.value = true
     error.value = e.message
   } finally {
@@ -37,14 +44,19 @@ async function submit() {
 }
 
 async function resend() {
-  if (submitting.value) return
+  if (submitting.value || remaining.value > 0) return
   if (rules.email(email.value) || !password.value) { error.value = '请填写邮箱和密码'; return }
   submitting.value = true
   error.value = ''
+  const targetEmail = email.value.trim()
   try {
-    await accountApi.resendVerification({ email: email.value.trim(), password: password.value })
+    const result = await accountApi.resendVerification({ email: targetEmail, password: password.value })
+    startCooldown(targetEmail, result.resend_after)
     sent.value = true
-  } catch (e) { error.value = e.message }
+  } catch (e) {
+    if (e.code === 'EMAIL_SEND_FAILED' || (e.code === 'RATE_LIMIT' && e.message.includes('60 秒'))) startCooldown(targetEmail)
+    error.value = e.message
+  }
   finally { submitting.value = false }
 }
 </script>
@@ -59,22 +71,22 @@ async function resend() {
       <Icon name="lock" :size="16" class="shrink-0" /> {{ props.notice }}
     </p>
     <form class="mt-5 space-y-4" novalidate @submit.prevent="submit">
-      <p v-if="sent" role="status" class="rounded-xl bg-indigo-50 p-3 text-sm text-indigo-700">验证邮件已发送，请在 30 分钟内打开邮件链接。未收到请检查垃圾邮件，60 秒后可重发。</p>
+      <p v-if="sent" role="status" class="rounded-xl bg-indigo-50 p-3 text-sm text-indigo-700">验证邮件已发送，请在 30 分钟内打开邮件链接。未收到请检查垃圾邮件，按钮倒计时结束后可重发。</p>
       <FormField v-model="email" label="邮箱" type="email" icon="user" autocomplete="email" maxlength="254" :autofocus="props.autofocus"
         placeholder="请输入邮箱地址" />
       <FormField v-model="password" label="密码" type="password" icon="lock" autocomplete="current-password" maxlength="128" placeholder="请输入密码" />
       <div class="text-right"><button type="button" class="inline-flex min-h-11 items-center text-sm font-semibold text-indigo-600 hover:underline" @click="forgot">忘记密码？</button></div>
       <p v-if="error" role="alert" class="flex items-center gap-2 rounded-xl bg-rose-50 px-3 py-2.5 text-sm text-rose-600">
-        <Icon name="alert" :size="16" class="shrink-0" /> {{ error }}
+        <Icon name="alert" :size="16" class="shrink-0" /> <span>{{ error }}<button v-if="needsRegistration" type="button" class="ml-2 inline-flex min-h-11 items-center font-semibold underline" @click="emit('switch', email.trim())">立即注册</button></span>
       </p>
       <button type="submit" :disabled="submitting" class="btn-primary flex min-h-12 w-full items-center justify-center gap-2 rounded-xl text-base font-bold">
         <Icon v-if="submitting" name="loader" :size="18" class="animate-spin" />
         {{ submitting ? '登录中…' : '登录' }}
       </button>
-      <button v-if="needsVerification" type="button" :disabled="submitting" class="min-h-11 w-full font-semibold text-indigo-600 disabled:opacity-50" @click="resend">重新发送验证邮件</button>
+      <button v-if="needsVerification" type="button" :disabled="submitting || remaining > 0" class="min-h-11 w-full font-semibold text-indigo-600 disabled:opacity-50" @click="resend">{{ remaining > 0 ? `${remaining} 秒后可重新发送` : '重新发送验证邮件' }}</button>
     </form>
     <p class="mt-5 text-center text-sm text-slate-500">
-      还没有账号？<button type="button" class="font-semibold text-indigo-600 hover:underline" @click="emit('switch')">免费注册</button>
+      还没有账号？<button type="button" class="font-semibold text-indigo-600 hover:underline" @click="emit('switch', email.trim())">免费注册</button>
     </p>
   </div>
 </template>

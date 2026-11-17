@@ -1,5 +1,33 @@
 # FreeVideo 方案设计文档
 
+## 2026-11-17 月卡价格恢复
+
+- 通过现有本机 CLI `python -m app.membership configure monthly --price-cents 1990 --monthly-seconds 36000` 更新业务配置，monthly revision=3；无需改代码或重启服务。
+- 运行中 `/api/plans` 已确认 monthly price_cents=1990、monthly_seconds=36000，功能上限维持 300/10/30/10；free/yearly 配置未变。此次仅配置变更，未创建支付订单或发起付款。
+
+## 2026-11-17 找回密码冷却与入口精简
+
+- `ForgotPasswordForm` 复用 `useVerificationCooldown`，使用独立 password-reset 作用域，避免与注册验证邮件的冷却互相影响。成功申请后开始 60 秒冷却，按钮及 submit 同时拦截重复提交；明确 60 秒限流错误也开始冷却。
+- 删除表单 login 事件与返回按钮，移除 AuthModal/PasswordRecovery 上失效的事件监听；重置密码页自身的返回登录链接继续保留。
+- `password_recovery_ui.py` 支持 UI_BASE_URL（默认 :5178），本轮对 :8000 已构建前端完成 1440px/390px 模拟 API 验证：60→1→0、Enter 防重复、重发重新计时、返回按钮移除、顶部登录切换、备用找回页、设置新密码及无凭证错误。
+
+## 2026-11-17 登录失败上限调整
+
+- `account_auth.LOGIN_FAILURE_LIMIT=10`，`LOGIN_FAILURE_WINDOW=900` 保持不变；基于邮箱的滚动窗口、成功清除与 IP 独立限流机制不变。
+- 离线 `test_login_feedback.py` 对已注册/未知邮箱分别验证前 10 次错误、第 11 次锁定、899 秒仍锁定及 901 秒恢复；通过模拟单调时钟测试，无真实等待或数据库写入。专项验证时独立提高 IP 限流，避免混淆两种限制。
+
+## 2026-11-17 邮件验证冷却展示
+
+- `useVerificationCooldown.js` 为登录/注册提供共享内存邮箱截止时间表；邮箱去空格、小写归一化，按 Date.now 截止时间计算向上取整秒数，避免后台标签页定时器减数漂移。组件卸载清理刷新定时器。
+- 发送成功使用接口 resend_after（缺省 60）；EMAIL_SEND_FAILED 与明确 60 秒冷却错误也启动冷却。注册和重发处理函数与按钮共同拦截冷却期重复提交，注册初次提交不受其它邮箱冷却影响。
+- `frontend/tests/verification_cooldown_ui.py` 对已构建 :8000 前端模拟全部 API，并推进浏览器时钟检查 60→1→0、按钮禁用、Enter 防重复、重发重置与表单间共享；1440px/390px 通过。登录提示四场景回归通过，未发送真实邮件。
+
+## 2026-11-17 登录失败反馈与注册衔接
+
+- `/api/auth/login` 仍执行密码校验（未知邮箱使用 dummy hash）并累计失败次数；未知邮箱返回 HTTP 401 / `EMAIL_NOT_REGISTERED`，已注册邮箱密码错误返回 HTTP 401 / `INVALID_CREDENTIALS`。限流先于凭证查询，锁定期间保持原提示。
+- `LoginForm` 根据错误码显示注册按钮，通过 switch 事件传邮箱；编辑邮箱清除旧提示与邮件验证状态。`AuthModal` 在当前弹窗中切换并向 `RegisterForm.initialEmail` 传入邮箱，保留续作回调；关闭再打开清空预填值。
+- 备用 Login 页面跳转 Register 时携带 email 与原 redirect，Register 只读取字符串邮箱作为初值。不传递密码，不自动提交注册或发送邮件。
+
 ## 2026-11-16 独立管理后台
 
 - `admin_store.py/admin_auth.py/admin_api.py` 提供 `/api/admin/*` 的独立账号、8 小时会话、权限、注册用户查询和启停、后台账号管理。`freevideo_admin` Cookie 限 `/api/admin`，令牌仅存摘要，后台认证错误使用 `ADMIN_*`，不触发前台退出。

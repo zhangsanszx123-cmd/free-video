@@ -136,7 +136,7 @@ class AccountUI(unittest.TestCase):
         page.goto(BASE + '/')
         page.locator('nav').get_by_role('button', name='登录', exact=True).click()
         self.dialog_login(page, username, 'wrong password!')
-        expect(self.dialog(page).get_by_role('alert')).to_contain_text('邮箱或密码错误')
+        expect(self.dialog(page).get_by_role('alert')).to_contain_text('密码错误')
         self.dialog_login(page, username.upper())
         expect(self.dialog(page)).to_be_hidden()
         self.assertEqual(page.url, BASE + '/')
@@ -300,7 +300,7 @@ class AccountUI(unittest.TestCase):
         d = self.dialog(page)
         expect(d.get_by_role('status').filter(has_text='密码已修改')).to_be_visible()
         self.dialog_login(page, username)
-        expect(d.get_by_role('alert')).to_contain_text('邮箱或密码错误')
+        expect(d.get_by_role('alert')).to_contain_text('密码错误')
         self.dialog_login(page, username, 'Brand new 2026')
         expect(d).to_be_hidden()
         self.assertEqual(page.url, BASE + '/')
@@ -322,7 +322,7 @@ class AccountUI(unittest.TestCase):
         expect(self.dialog(page)).to_be_hidden()
         page.locator('nav').get_by_role('button', name='登录', exact=True).click()
         self.dialog_login(page, username)
-        expect(self.dialog(page).get_by_role('alert')).to_contain_text('邮箱或密码错误')
+        expect(self.dialog(page).get_by_role('alert')).to_contain_text('该邮箱尚未注册')
 
     def test_mobile_dialog_and_navigation(self):
         page = self.new_page(390, 844)

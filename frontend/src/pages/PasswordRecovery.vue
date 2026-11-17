@@ -38,7 +38,7 @@ async function submit() {
 </script>
 <template>
   <AuthShell :title="resetting ? '设置新密码' : '找回密码'" :subtitle="resetting ? '设置完成后，请使用新密码重新登录' : '通过注册邮箱接收密码重置链接'">
-    <ForgotPasswordForm v-if="!resetting" @login="router.push('/login')" />
+    <ForgotPasswordForm v-if="!resetting" />
     <form v-else class="mt-6 space-y-4" novalidate @submit.prevent="submit">
       <p v-if="done" role="status" class="rounded-xl bg-indigo-50 p-3 text-sm leading-6 text-indigo-700">密码已重置，所有登录设备已退出，请使用新密码登录。</p>
       <template v-if="!done">
