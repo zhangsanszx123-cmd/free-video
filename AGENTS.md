@@ -25,3 +25,8 @@ Read `docs/requirements.md` (scope, decisions, backlog) and `docs/design.md` (ar
 - Pin new npm/pip deps to versions published >= 7 days ago.
 - f2 is installed from a pinned GitHub commit zip via codeload (git clone to github.com fails on this network); PyPI f2 0.0.1.7 is outdated (403 from Douyin).
 - `pip install` must not run with cwd = `%TEMP%` (the stray `struct.py` breaks build subprocesses).
+
+## Deployment
+- Production runs on Tencent Cloud via GitHub Actions: image is built in CI and sent over SSH, no registry. Scripts live in `deploy/` (`setup-production.mjs` one-time init, `send-image.mjs`, `receive-release.sh`, `deploy.sh`), CI in `.github/workflows/deploy.yml`, details in `docs/production-deployment.md`.
+- The container runs one uvicorn process (in-memory queue/captcha/guest locks). Real client IPs come only from `FORWARDED_ALLOW_IPS` (the proxy gateway); never trust arbitrary `X-Forwarded-For`.
+- Deployment script tests: `node --test "deploy/tests/*.test.mjs"`. MySQL TLS is optional via `MYSQL_SSL_CA` (chain verified, host name not matched).

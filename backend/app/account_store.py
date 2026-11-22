@@ -23,10 +23,13 @@ def utcnow() -> datetime:
 
 @contextmanager
 def _cursor():
+    # The server certificate is signed by MySQL's own CA and carries no SAN for the internal host name,
+    # so the chain is verified against the pinned CA while host-name matching is off.
+    tls = {"ssl_ca": config.MYSQL_SSL_CA, "ssl_verify_cert": True, "ssl_verify_identity": False} if config.MYSQL_SSL_CA else {}
     try:
         conn = pymysql.connect(host=config.MYSQL_HOST, port=config.MYSQL_PORT, user=config.MYSQL_USER,
                                password=config.MYSQL_PASSWORD, database=config.MYSQL_DATABASE, charset="utf8mb4",
-                               cursorclass=DictCursor, connect_timeout=5, read_timeout=10, write_timeout=10)
+                               cursorclass=DictCursor, connect_timeout=5, read_timeout=10, write_timeout=10, **tls)
     except pymysql.MySQLError as e:
         log.warning("MySQL connection failed: %s", e)
         raise AccountError("DB_UNAVAILABLE", UNAVAILABLE, 503) from e

@@ -1,0 +1,51 @@
+name: free-video
+services:
+  app:
+    image: ${APP_IMAGE:?Set APP_IMAGE to a verified immutable image reference}
+    restart: unless-stopped
+    init: true
+    # Host-network OpenResty reaches the app through loopback only.
+    ports:
+      - '127.0.0.1:13001:8000'
+    env_file:
+      - path: ./deploy/runtime.env
+        format: raw
+    environment:
+      DOWNLOAD_DIR: /data/downloads
+      ASR_DIR: /data/transcriptions
+      MYSQL_HOST: mysql
+      MYSQL_PORT: '3306'
+      MYSQL_SSL_CA: /run/secrets/mysql-ca.pem
+    volumes:
+      - type: bind
+        source: ./storage/transcriptions
+        target: /data/transcriptions
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./storage/downloads
+        target: /data/downloads
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./deploy/secrets/mysql-ca.pem
+        target: /run/secrets/mysql-ca.pem
+        read_only: true
+        bind:
+          create_host_path: false
+    networks:
+      database:
+        aliases: [free-video-app]
+    mem_limit: 1g
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+networks:
+  database:
+    external: true
+    name: 1panel-network

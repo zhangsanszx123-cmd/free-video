@@ -56,6 +56,7 @@ MYSQL_PORT = int(os.getenv("MYSQL_PORT", "3306"))
 MYSQL_USER = os.getenv("MYSQL_USER", "root")
 MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "")
 MYSQL_DATABASE = os.getenv("MYSQL_DATABASE", "freevideo")
+MYSQL_SSL_CA = os.getenv("MYSQL_SSL_CA") or None
 MYSQL_TEST_DATABASE = os.getenv("MYSQL_TEST_DATABASE") or None
 AUTH_SESSION_DAYS = int(os.getenv("AUTH_SESSION_DAYS", "7"))
 ADMIN_SESSION_HOURS = max(1, int(os.getenv("ADMIN_SESSION_HOURS", "8")))
