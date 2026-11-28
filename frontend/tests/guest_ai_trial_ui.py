@@ -138,10 +138,19 @@ class GuestAiTrialUI(unittest.TestCase):
         self.assertEqual(self.protected, [])
 
     def test_limit_prompts_login_then_resumes_account_summary(self):
+        self.start(VIDEO)
+        expect(self.page.get_by_role('heading', name='游客总结结果')).to_be_visible()
         self.available = False
         self.post_error = dict(code='GUEST_AI_LIMIT', detail='游客 AI 体验已用完，请登录后继续')
-        self.start('https://example.com/second-video')
+        self.page.get_by_role('textbox', name='视频链接或分享口令').fill('https://example.com/second-video')
+        self.page.get_by_role('button', name='AI 总结', exact=True).click()
         expect(self.page.get_by_role('dialog')).to_contain_text('游客 AI 体验已用完')
+        self.page.keyboard.press('Escape')
+        expect(self.page.get_by_role('dialog')).not_to_be_visible()
+        # Repeated clicks on the second video after closing the dialog must always re-open the login dialog.
+        self.page.get_by_role('button', name='AI 总结', exact=True).click()
+        expect(self.page.get_by_role('dialog')).to_contain_text('游客 AI 体验已用完')
+        self.assertEqual(self.polls, [])
         self.assertEqual(self.protected, [])
         self.login()
         expect(self.page.get_by_text('登录后的总结', exact=True)).to_be_visible()

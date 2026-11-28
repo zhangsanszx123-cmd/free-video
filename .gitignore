@@ -9,4 +9,6 @@ __pycache__/
 frontend/node_modules/
 frontend/dist/
 .runtime/
+.agents/
+skills-lock.json
 

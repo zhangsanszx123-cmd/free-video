@@ -59,7 +59,7 @@ function loginForAi(notice, resume = true) {
 function applyGuestTask(task, current, version, promptLogin = false) {
   if (!guestCurrent(current, version) || !task?.id) return
   guestTrial.value = task
-  guestTaskUrl ||= task.url || task.info?.url || ''
+  guestTaskUrl = task.url || task.info?.url || guestTaskUrl
   guestPollError.value = ''
   if (['queued', 'running'].includes(task.status)) {
     guestWaiting.value = true
@@ -110,7 +110,6 @@ async function submitGuestTrial(target, current) {
   guestController = new AbortController()
   guestSubmitting.value = true
   guestPollError.value = ''
-  guestTaskUrl = target
   let submitted = false
   try {
     // The signed cookie must arrive before expensive work is accepted, so a lost
@@ -121,6 +120,7 @@ async function submitGuestTrial(target, current) {
     guestAvailable.value = state.available
     const savedUrl = state.task?.url || state.task?.info?.url
     if (state.task?.id && savedUrl === target && ['queued', 'running', 'done', 'uncertain'].includes(state.task.status)) {
+      guestTaskUrl = target
       applyGuestTask(state.task, current, version, true)
       return
     }
@@ -132,6 +132,7 @@ async function submitGuestTrial(target, current) {
     const task = await api.guestAiSummary(target, guestController.signal)
     if (!guestCurrent(current, version)) return
     if (!task?.id) throw new Error('未能确认任务是否接收，请刷新页面查询原任务。')
+    guestTaskUrl = target
     applyGuestTask(task, current, version, true)
   } catch (e) {
     if (!guestCurrent(current, version) || e.name === 'AbortError') return
@@ -235,9 +236,13 @@ async function submitWithView(view = 'download') {
     await account.ensure()
     if (disposed || current !== actionVersion) return
     if (!account.loggedIn) {
-      if (guestTrial.value?.id && guestTaskUrl === target && ['queued', 'running', 'done', 'uncertain'].includes(guestTrial.value.status)) {
+      if (guestTrial.value?.id && guestTaskUrl === target && ['queued', 'running', 'uncertain'].includes(guestTrial.value.status)) {
         guestWaiting.value = true
         await pollGuestTask(guestTrial.value.id, current, guestVersion)
+        return
+      }
+      if (guestTrial.value?.id && guestTaskUrl === target && guestTrial.value.status === 'done') {
+        loginForAi('游客 AI 体验名额已使用，登录后可继续总结更多视频。')
         return
       }
       await submitGuestTrial(target, current)
