@@ -252,16 +252,10 @@ async function submitWithView(view = 'download') {
   }
 }
 
-async function selectTab(view) {
+function selectTab(view) {
   actionVersion++
   stopGuestWork()
   activeView.value = view
-  // AI mode is a preview; authentication and work begin at the submit button.
-  if (view === 'ai') return
-  const target = url.value.trim()
-  if (!target || loading.value) return
-  const needParse = !info.value || parsedUrl.value !== target
-  if (needParse) await parse()
 }
 function clearInput() {
   actionVersion++
@@ -294,7 +288,7 @@ onUnmounted(() => { disposed = true; stopGuestWork(); clearTimeout(healthTimer);
     <div class="pointer-events-none absolute -right-24 top-10 h-72 w-72 rounded-full bg-violet-400/20 blur-3xl"></div>
     <div class="relative mx-auto max-w-5xl px-4 text-center sm:px-6">
       <div class="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50/90 px-3 py-1 text-xs font-semibold text-amber-700">
-        <Icon name="gift" :size="14" /> 游客可下载 2 个视频 · AI 总结可体验 1 次<span class="hidden sm:inline">（最长 3 分钟，含无字幕转写）</span>
+        <Icon name="gift" :size="14" /> 游客可下载并提取 2 个视频字幕 · AI 总结可体验 1 次<span class="hidden sm:inline">（最长 3 分钟，含无字幕转写）</span>
         <RouterLink to="/pricing" class="text-amber-800 underline-offset-2 hover:underline">查看 →</RouterLink>
       </div>
       <h1 class="mt-5 text-3xl font-extrabold leading-tight tracking-tight text-slate-950 sm:text-5xl lg:text-6xl">
@@ -572,7 +566,7 @@ onUnmounted(() => { disposed = true; stopGuestWork(); clearTimeout(healthTimer);
     <div class="relative mx-auto max-w-5xl overflow-hidden rounded-3xl bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 px-6 py-12 text-center text-white shadow-2xl shadow-indigo-500/30 sm:py-16">
       <div class="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-white/10 blur-2xl"></div>
       <h2 class="text-2xl font-extrabold sm:text-4xl">登录即可免费使用，按需再升级</h2>
-      <p class="mx-auto mt-3 max-w-xl text-sm text-indigo-100 sm:text-base">游客可免费下载 2 个视频，另可体验 1 个最长 3 分钟的视频 AI 总结，含无字幕转写。登录后下载不限次数，可总结更多视频、使用批量提取与每月语音识别额度；需要更多时长与次数，可升级月卡或年卡。</p>
+      <p class="mx-auto mt-3 max-w-xl text-sm text-indigo-100 sm:text-base">游客可免费下载并提取 2 个视频的字幕文案，另可体验 1 个最长 3 分钟的视频 AI 总结，含无字幕转写。登录后下载不限次数，可总结更多视频、使用批量提取与每月语音识别额度；需要更多时长与次数，可升级月卡或年卡。</p>
       <div class="mt-7 flex flex-col justify-center gap-3 sm:flex-row">
         <RouterLink to="/pricing" class="btn-gold inline-flex items-center justify-center gap-2 rounded-xl px-8 py-3.5 font-bold">
           <Icon name="crown" :size="18" /> 查看会员与识别时长

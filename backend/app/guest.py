@@ -19,7 +19,7 @@ from .errors import AccountError
 log = logging.getLogger("freevideo.guest")
 COOKIE = "freevideo_guest"
 LIMIT = 2
-LOGIN_HINT = "游客可免费解析并下载 2 个视频，登录后不限次数"
+LOGIN_HINT = "游客可免费解析、下载并提取 2 个视频的字幕文案，登录后不限次数"
 
 
 def _digest(value: str) -> str:

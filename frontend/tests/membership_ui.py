@@ -166,24 +166,25 @@ for i, source in enumerate(['asr','platform_subtitle']):
         submissions = []
         def reject(r):
             submissions.append(r.request.post_data)
-            r.fulfill(status=403, json=dict(detail='测试额度不足', code='QUOTA_EXCEEDED', retryable=False))
+            if len(submissions) == 1:
+                r.fulfill(status=403, json=dict(detail='游客的 2 个视频名额已用完，请登录后继续', code='GUEST_LIMIT', retryable=False))
+            else:
+                r.fulfill(status=403, json=dict(detail='测试额度不足', code='QUOTA_EXCEEDED', retryable=False))
         p.route('**/api/transcriptions', reject)
         p.goto(BASE + '/')
         p.get_by_role('textbox', name='视频链接或分享口令').fill(info['url'])
         p.get_by_role('button', name='立即解析', exact=True).click()
-        expect(p.get_by_text('登录后可提取平台字幕与视频文稿')).to_be_visible()
-        p.get_by_role('button', name='登录 / 注册').click()
         dialog = p.locator('dialog[aria-labelledby="auth-title"]')
         expect(dialog).to_be_visible()
-        expect(dialog).to_contain_text('登录后即可提取字幕与视频文稿')
-        self.assertEqual(submissions, [])
+        expect(dialog).to_contain_text('名额已用完')
+        self.assertEqual(len(submissions), 1)
         dialog.get_by_label('邮箱').fill(self.username)
         dialog.get_by_label('密码', exact=True).fill(PASSWORD)
         fill_captcha(dialog)
         dialog.get_by_role('button', name='登录', exact=True).click()
         expect(dialog).to_be_hidden()
         expect(p.get_by_text('测试额度不足', exact=True)).to_be_visible()
-        self.assertEqual(len(submissions), 1)
+        self.assertEqual(len(submissions), 2)
 
     def test_paid_snapshot_and_responsive_layouts(self):
         self.seed('yearly')

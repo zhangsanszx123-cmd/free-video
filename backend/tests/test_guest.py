@@ -51,14 +51,19 @@ def test_new_visitor_on_other_ip_is_independent(client):
 def test_download_requires_a_parsed_link_and_other_features_need_login(client, monkeypatch):
     client.cookies.clear()
     monkeypatch.setattr(main.manager, 'submit', lambda *a, **k: type('J', (), {'to_dict': lambda self: {'id': 'job'}})())
+    monkeypatch.setattr(main, 'read_subtitles', lambda *a: ({'title': 'T'}, [], {'source': 'platform_subtitle'}))
     body = {'url': 'https://canon.example/a', 'kind': 'video'}
-    denied = client.post('/api/download', json=body)
-    assert denied.status_code == 403 and denied.json()['code'] == 'GUEST_LIMIT'
+    for path, payload in (('/api/download', body), ('/api/subtitles', {'url': body['url']}),
+                          ('/api/transcript', {'url': body['url']}),
+                          ('/api/transcriptions', {'url': body['url'], 'allow_asr': False})):
+        denied = client.post(path, json=payload)
+        assert denied.status_code == 403 and denied.json()['code'] == 'GUEST_LIMIT', path
     assert parse(client, 'a').status_code == 200
     assert client.post('/api/download', json=body).json() == {'id': 'job'}
-    for path, payload in (('/api/subtitles', {'url': body['url']}), ('/api/transcript', {'url': body['url']}),
-                          ('/api/transcriptions', {'url': body['url'], 'allow_asr': False}),
-                          ('/api/batch', {'urls': [body['url']], 'kind': 'audio'}),
+    assert client.post('/api/subtitles', json={'url': body['url']}).json() == {'id': 'job'}
+    assert client.post('/api/transcript', json={'url': body['url']}).status_code == 200
+    assert client.post('/api/transcriptions', json={'url': body['url'], 'allow_asr': False}).status_code == 200
+    for path, payload in (('/api/batch', {'urls': [body['url']], 'kind': 'audio'}),
                           ('/api/learn/summary', {'url': body['url']}), ('/api/ai/translate', {'url': body['url'], 'target_lang': 'English'})):
         assert client.post(path, json=payload).status_code == 401, path
 

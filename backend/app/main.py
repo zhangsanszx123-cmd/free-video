@@ -201,22 +201,22 @@ def batch(req: BatchReq, user: dict = Depends(require_user)):
 
 
 @app.post("/api/subtitles")
-def subtitles(req: SubtitleReq, user: dict | None = Depends(current_user)):
-    if not user:
-        raise guest.login_required("字幕下载")
+def subtitles(req: SubtitleReq, request: Request, user: dict | None = Depends(current_user)):
     try:
         url = downloader.extract_url(req.url)
+        if not user:
+            guest.require_known(request, url)
     except VideoError as e:
         _bad_request(e)
     return manager.submit("subtitle", tasks.subtitle_download(url, req.lang)).to_dict()
 
 
 @app.post("/api/transcript")
-def transcript(req: SubtitleReq, user: dict | None = Depends(current_user)):
-    if not user:
-        raise guest.login_required("字幕与文稿提取")
+def transcript(req: SubtitleReq, request: Request, user: dict | None = Depends(current_user)):
     try:
         url = downloader.extract_url(req.url)
+        if not user:
+            guest.require_known(request, url)
         config.DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=config.DOWNLOAD_DIR) as tmp:
             info, cues, metadata = read_subtitles(url, Path(tmp), req.lang)
@@ -247,13 +247,14 @@ def transcription_session(request: Request, response: Response):
 @app.post("/api/transcriptions")
 def create_transcription(req: TranscriptionReq, request: Request, response: Response, user: dict | None = Depends(current_user)):
     transcription_auth.check_origin(request)
-    if not user:
-        raise guest.login_required("字幕提取与语音识别（含每月免费识别额度）")
-    owner = f"user:{user['id']}"
+    owner = f"user:{user['id']}" if user else transcription_auth.owner(request, response)
     transcription_auth.rate_limit(request, owner)
     response.headers["Cache-Control"] = "no-store"
     try:
-        return transcription_manager.submit(owner, req.url, req.lang, req.allow_asr).public()
+        if not user:
+            guest.require_known(request, req.url)
+        max_dur = None if user else min(8 * 60, config.ASR_MAX_DURATION)
+        return transcription_manager.submit(owner, req.url, req.lang, req.allow_asr, max_duration=max_dur).public()
     except TranscriptionError:
         raise
     except VideoError as e:

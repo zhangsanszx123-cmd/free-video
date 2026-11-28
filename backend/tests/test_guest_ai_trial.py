@@ -220,19 +220,20 @@ def test_exactly_three_minutes_can_be_summarized(client, native, monkeypatch):
 
 def test_guest_trial_does_not_unlock_other_protected_apis(client, native):
     client.cookies.clear()
-    for path, body in (
-        ('/api/learn/summary', {'url': VIDEO}),
-        ('/api/learn/mindmap', {'url': VIDEO}),
-        ('/api/learn/chat', {'url': VIDEO, 'messages': [{'role': 'user', 'content': '解释一下'}]}),
-        ('/api/ai/summary', {'url': VIDEO}),
-        ('/api/ai/translate', {'url': VIDEO}),
-        ('/api/transcriptions', {'url': VIDEO, 'allow_asr': True}),
-        ('/api/transcript', {'url': VIDEO}),
+    for path, body, expected_status in (
+        ('/api/learn/summary', {'url': VIDEO}, 401),
+        ('/api/learn/mindmap', {'url': VIDEO}, 401),
+        ('/api/learn/chat', {'url': VIDEO, 'messages': [{'role': 'user', 'content': '解释一下'}]}, 401),
+        ('/api/ai/summary', {'url': VIDEO}, 401),
+        ('/api/ai/translate', {'url': VIDEO}, 401),
+        ('/api/transcriptions', {'url': VIDEO, 'allow_asr': True}, 403),
+        ('/api/transcript', {'url': VIDEO}, 403),
     ):
-        assert client.post(path, json=body).status_code == 401, path
+        assert client.post(path, json=body).status_code == expected_status, path
     trial = accepted(submit(client))
     wait(client, trial['id'])
     assert client.post('/api/learn/mindmap', json={'url': VIDEO}).status_code == 401
+    assert client.post('/api/transcript', json={'url': VIDEO}).status_code == 403
 
 
 def test_trial_never_creates_account_quota_or_login_debt(client, native):

@@ -21,10 +21,9 @@ const retryable = ref(false)
 const timestamps = ref(false)
 const asrEnabled = ref(null)
 const healthMinutes = ref(60)
-const maxMinutes = computed(() => membership.data?.asr_max_minutes || healthMinutes.value)
+const maxMinutes = computed(() => membership.data?.asr_max_minutes || (!account.loggedIn ? Math.min(8, healthMinutes.value) : healthMinutes.value))
 const reconnect = ref(false)
 const auto = ref(false)
-const guestPrompt = ref(false)
 let healthReady = Promise.resolve()
 let version = 0
 let controller
@@ -66,6 +65,10 @@ async function loadSubtitles() {
     error.value = e.message
     errorCode.value = e.code || 'SUBTITLE_FAILED'
     retryable.value = true
+    if (['GUEST_LIMIT', 'AUTH_REQUIRED'].includes(e.code)) {
+      const expected = version
+      openAuth({ notice: e.message, onSuccess: () => { if (expected === version && props.active) loadSubtitles() } })
+    }
   } finally {
     if (current === version) busy.value = false
   }
@@ -123,14 +126,6 @@ async function poll(id, current) {
 
 async function transcribe() {
   if (busy.value) return
-  if (!account.loggedIn) {
-    await account.ensure()
-    if (!account.loggedIn) {
-      const expected = version
-      openAuth({ notice: '登录后可使用每月免费语音识别额度', onSuccess: () => { if (expected === version && props.active) transcribe() } })
-      return
-    }
-  }
   const current = resetRequest()
   busy.value = true
   error.value = ''
@@ -150,6 +145,10 @@ async function transcribe() {
     errorCode.value = e.code || 'REQUEST_FAILED'
     retryable.value = e.retryable !== false
     busy.value = false
+    if (['GUEST_LIMIT', 'AUTH_REQUIRED'].includes(e.code)) {
+      const expected = version
+      openAuth({ notice: e.message, onSuccess: () => { if (expected === version && props.active) transcribe() } })
+    }
   }
 }
 
@@ -211,11 +210,6 @@ async function init(info) {
       healthMinutes.value = health.asr_max_minutes || 60
     }
   }).catch(() => { if (props.info === info) asrEnabled.value = null })
-  // Guests may only download; subtitle and speech-to-text features need an account.
-  if (!account.loggedIn) await account.ensure()
-  if (disposed || props.info !== info) return
-  guestPrompt.value = !account.loggedIn
-  if (guestPrompt.value) return
   if (info.subtitles?.length) await loadSubtitles()
   else {
     const current = version
@@ -225,7 +219,9 @@ async function init(info) {
   }
 }
 watch(() => props.info, init, { immediate: true })
-watch(() => account.loggedIn, (loggedIn) => { if (loggedIn && guestPrompt.value) init(props.info) })
+watch(() => account.loggedIn, (loggedIn) => {
+  if (loggedIn && ['GUEST_LIMIT', 'AUTH_REQUIRED'].includes(errorCode.value)) init(props.info)
+})
 
 loadMembership()
 onUnmounted(() => { disposed = true; resetRequest() })
@@ -244,13 +240,6 @@ onUnmounted(() => { disposed = true; resetRequest() })
           <option v-for="s in info.subtitles" :key="s.lang" :value="s.lang">{{ s.name }}</option>
         </select>
       </label>
-    </div>
-
-    <div v-if="guestPrompt" class="mt-4 rounded-xl bg-indigo-50 p-4 text-sm leading-6 text-indigo-900" role="status">
-      <p class="font-semibold">登录后可提取平台字幕与视频文稿</p>
-      <p class="mt-1">游客可免费下载 2 个视频；字幕提取、语音转文字、批量提取与 AI 总结需要登录，登录后下载不限次数。</p>
-      <button type="button" class="btn-primary mt-3 inline-flex min-h-11 items-center gap-2 rounded-xl px-4 font-semibold"
-        @click="openAuth({ notice: '登录后即可提取字幕与视频文稿' })">登录 / 注册</button>
     </div>
 
     <div v-if="busy" class="mt-4 rounded-xl bg-indigo-50 p-4 text-sm text-indigo-800" role="status" aria-live="polite">

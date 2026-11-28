@@ -1,5 +1,11 @@
 # FreeVideo 方案设计文档
 
+## 2026-11-28 游客 2 个视频名额开放字幕与文案提取
+
+- `/api/subtitles`、`/api/transcript`、`/api/transcriptions`（POST）对未登录游客不再直接返回 401 `AUTH_REQUIRED`，而是调用 `guest.require_known(request, url)` 校验请求链接属于当前游客（Cookie 或 IP）已成功解析的 2 个视频名额（`guest_links`）内；未解析或超出 2 个名额返回 403 `GUEST_LIMIT`。
+- 游客调用 `/api/transcriptions` 使用 `transcription_auth.owner(request, response)` 签名会话隔离任务归属，并设置 `max_duration = min(480, ASR_MAX_DURATION)`（单条上限 8 分钟）。
+- `TranscriptPanel.vue` 移除 `guestPrompt` 强制登录块，游客解析名额内视频后自动请求 `/api/transcript` 或在无平台字幕时发起 `/api/transcriptions`；若返回 `GUEST_LIMIT` / `AUTH_REQUIRED` 则调用 `openAuth` 弹窗并在登录成功后原地续作。
+
 ## 2026-11-28 游客免费 AI 视频总结体验
 
 - `guest_ai_trial.py/guest_ai_api.py` 提供 `/api/guest/ai-summary`（`GET` 状态与最近任务、`POST` 异步提交、`GET /{trial_id}` 轮询），强制同源校验、`no-store` 及按 Cookie owner + IP 的创建（10/分钟）与读取限流。
@@ -12,9 +18,9 @@
 
 ## 2026-11-28 首页 AI 模式预览与提交鉴权
 
-- `Home.selectTab('ai')` 同步更新 activeView 与 actionVersion 后直接返回，不调用 aiAllowed、parse 或递增总结触发序号；身份检查和登录续作保留在 submitWithView 表单提交路径。
+- `Home.selectTab(view)` 对 `download` 与 `ai` 两个选项卡均仅同步更新 `activeView` 与 `actionVersion` 并停止旧游客轮询，不调用 `parse`、不自动提交、不递增总结触发序号；所有解析、提取和身份/额度检查均保留在 `submitWithView` 显式按钮/表单提交路径。
 - submitWithView 捕获动作版本，解析完成后只有版本、视图和输入仍匹配才触发总结，避免 AI 提交期间切换下载再切回 AI 恢复旧意图；每次新 parse 前清零 autoSummarizeSeq，避免 ResultCard 内 AI 面板重新挂载时沿用旧正值发起隐藏总结。
-- 既有共享链接 guest fallback、下载选项卡解析、登录后原地续作和服务端鉴权保持原有规则。相关浏览器验证见 [记录](./home-ai-login-verification.md)。
+- 既有共享链接 guest fallback、登录后原地续作和服务端鉴权保持原有规则。相关浏览器验证见 [记录](./home-ai-login-verification.md)。
 
 ## 2026-11-28 视频文案提取开放 API
 

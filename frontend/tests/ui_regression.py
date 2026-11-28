@@ -296,19 +296,18 @@ class UIRegression(unittest.TestCase):
         self.page.get_by_role('button', name='一键 AI 总结').click()
         expect(self.page.get_by_text('本期 AI 次数已用完')).to_be_visible()
 
-    def test_guest_sees_login_prompt_instead_of_subtitles(self):
+    def test_guest_extracts_subtitles_within_allowance(self):
         self.page.route('**/api/auth/me', lambda r: r.fulfill(json=dict(user=None)))
         calls = []
-        self.page.route('**/api/transcript', lambda r: (calls.append(r), r.fulfill(json=dict(text='x')))[0])
+        self.page.route('**/api/transcript', lambda r: (calls.append(r.request.url), r.fulfill(
+            json=dict(text='游客免费提取的字幕内容', timed_text='[00:01] 游客免费提取的字幕内容', srt='1\n00:00:00,000 --> 00:00:01,000\n游客免费提取的字幕内容\n', cues=1, source='platform_subtitle')))[0])
         self.page.route('**/api/parse', lambda r: r.fulfill(json=dict(INFO, subtitles=[dict(lang='zh', name='中文')])))
         self.page.goto(BASE)
         self.page.get_by_role('textbox', name='视频链接或分享口令').fill(INFO['url'])
         self.page.get_by_role('button', name='立即解析', exact=True).click()
-        expect(self.page.get_by_text('登录后可提取平台字幕与视频文稿')).to_be_visible()
+        expect(self.page.get_by_text('游客免费提取的字幕内容')).to_be_visible()
         expect(self.page.get_by_role('button', name='下载高清视频', exact=True)).to_be_enabled()
-        self.assertEqual(calls, [])
-        self.page.get_by_role('button', name='登录 / 注册').click()
-        expect(self.page.get_by_role('dialog')).to_be_visible()
+        self.assertEqual(len(calls), 1)
 
     def mock_home_ai_actions(self):
         calls = dict(parse=[], summary=[], transcription=[])
@@ -408,7 +407,7 @@ class UIRegression(unittest.TestCase):
                     self.page.get_by_role('button', name='AI 总结', exact=True).click()
                     self.assertTrue(pending)
                     if action == 'tab':
-                        # The download tab keeps its existing parse behavior; returning to AI is only a preview.
+                        # Both mode tabs only switch views; parsing begins only at the submit button.
                         self.page.get_by_role('tab', name='素材与文案下载', exact=True).click()
                         ai_tab.click()
                     else:
@@ -419,7 +418,7 @@ class UIRegression(unittest.TestCase):
                     self.page.wait_for_timeout(150)
                     expect(self.page.locator('dialog[open]')).to_have_count(0)
                     expect(ai_tab).to_have_attribute('aria-selected', 'true')
-                    self.assertEqual(calls['parse'], [INFO['url']] if action == 'tab' else [])
+                    self.assertEqual(calls['parse'], [])
                     self.assertEqual(calls['summary'], [])
                     self.assertEqual(calls['transcription'], [])
                     self.page.unroute('**/api/auth/me')
@@ -459,6 +458,9 @@ class UIRegression(unittest.TestCase):
         changed_url = 'https://example.com/another-video'
         url.fill(changed_url)
         self.page.get_by_role('tab', name='素材与文案下载', exact=True).click()
+        self.page.wait_for_timeout(150)
+        self.assertEqual(calls['parse'], [INFO['url']], 'Selecting the download tab must not auto-parse')
+        self.page.get_by_role('button', name='立即解析', exact=True).click()
         expect(self.page.get_by_role('button', name='下载高清视频', exact=True)).to_be_visible()
         self.page.wait_for_timeout(150)
         self.assertEqual(calls['parse'], [INFO['url'], changed_url])
@@ -471,10 +473,16 @@ class UIRegression(unittest.TestCase):
 
     def test_guest_limit_opens_login_dialog(self):
         self.page.route('**/api/auth/me', lambda r: r.fulfill(json=dict(user=None)))
-        self.page.route('**/api/parse', lambda r: r.fulfill(status=403, json=dict(
-            detail='游客的 2 个视频名额已用完，请登录后继续', code='GUEST_LIMIT')))
+        parse_calls = []
+        self.page.route('**/api/parse', lambda r: (parse_calls.append(r.request.url), r.fulfill(status=403, json=dict(
+            detail='游客的 2 个视频名额已用完，请登录后继续', code='GUEST_LIMIT')))[0])
         self.page.goto(BASE)
         self.page.get_by_role('textbox', name='视频链接或分享口令').fill(INFO['url'])
+        self.page.get_by_role('tab', name='AI 视频总结', exact=True).click()
+        self.page.get_by_role('tab', name='素材与文案下载', exact=True).click()
+        self.page.wait_for_timeout(150)
+        self.assertEqual(parse_calls, [], 'Switching to the download tab must never auto-parse or prompt login')
+        expect(self.page.locator('dialog[open]')).to_have_count(0)
         self.page.get_by_role('button', name='立即解析', exact=True).click()
         dialog = self.page.get_by_role('dialog')
         expect(dialog).to_be_visible()
