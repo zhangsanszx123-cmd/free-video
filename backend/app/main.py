@@ -6,12 +6,11 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
-from fastapi.responses import JSONResponse
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import account_store, admin_store, ai, asr, config, downloader, guest, tasks, transcription_auth, membership, payments, usage
+from . import account_store, admin_store, ai, asr, config, downloader, guest, seo, tasks, transcription_auth, membership, payments, usage
 from .account_auth import require_user, current_user
 from .errors import AccountError, EmptySubtitles, NoSubtitles, TranscriptionError
 from .transcriptions import TranscriptionManager, read_subtitles, result_payload
@@ -392,16 +391,27 @@ def open_api_schema():
     return JSONResponse(public_schema(open_router), headers={'Cache-Control': 'no-store'})
 
 
+@app.get('/robots.txt', include_in_schema=False)
+def robots_txt(request: Request):
+    return PlainTextResponse(seo.render_robots_txt(seo.resolve_base_url(request)))
+
+
+@app.get('/sitemap.xml', include_in_schema=False)
+def sitemap_xml(request: Request):
+    return Response(seo.render_sitemap_xml(seo.resolve_base_url(request)), media_type='application/xml; charset=utf-8')
+
+
 if config.FRONTEND_DIST.exists():
     dist = config.FRONTEND_DIST.resolve()
     if (dist / "assets").exists():
         app.mount("/assets", StaticFiles(directory=dist / "assets"), name="assets")
 
     @app.get("/{path:path}", include_in_schema=False)
-    def spa(path: str):
+    def spa(path: str, request: Request):
         if path.startswith("api/"):
             raise HTTPException(404)
         f = (dist / path).resolve()
         if path and f.is_file() and f.is_relative_to(dist):
             return FileResponse(f)
-        return FileResponse(dist / "index.html")
+        template = (dist / "index.html").read_text(encoding="utf-8")
+        return HTMLResponse(seo.render_spa_html(template, path, seo.resolve_base_url(request)))

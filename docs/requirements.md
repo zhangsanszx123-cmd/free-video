@@ -1,5 +1,11 @@
 # FreeVideo 需求分析文档
 
+## 2026-11-28 全站 SEO 搜索引擎优化（用户确认并实现）
+
+- 对标参考站关键词与 `seo-audit` 审计规范，围绕「在线视频文案提取、视频转文字、视频语音转文字、视频字幕提取、万能视频下载、抖音/B站/YouTube视频下载、视频转音频MP3、AI视频总结、批量文案提取」完成全站 SEO 优化，不引入第三方广告或统计脚本，不影响任何既有功能。
+- 为 6 个公开可索引页面（`/`、`/batch`、`/ai`、`/learn`、`/pricing`、`/account/api/docs`）配置独立的 `<title>`、`description`、`keywords`、`canonical`、Open Graph（`og:*`）与 Twitter Card（`twitter:*`），并在服务端返回 HTML 与客户端路由切换时双向同步；对登录/注册/个人中心/历史/后台及 404 未知路径自动注入 `noindex, nofollow`。
+- 首页 `<head>` 嵌入 5 组 Schema.org JSON-LD 结构化数据（`WebSite` 含 `SearchAction`、`Organization`、`WebPage`、`SoftwareApplication`、`FAQPage`），提供 `/robots.txt`、`/sitemap.xml`、`/site.webmanifest` 与 `/og-cover.svg`。
+
 ## 2026-11-28 游客免费提取 2 次视频字幕与文案（用户确认并实现）
 
 - 游客在 2 个免费解析视频名额（`guest_links`，按签名 Cookie + IP 永久计次）内，除了可下载视频与 MP3，还可在结果卡「视频文案」区域免费提取这 2 个视频的平台字幕与文案（含时间戳切换、复制文稿、下载 TXT/SRT）；当视频无平台字幕时，也支持在这 2 个视频名额内使用语音转文字（单条最长 8 分钟）。

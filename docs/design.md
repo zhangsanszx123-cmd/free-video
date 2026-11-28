@@ -1,5 +1,11 @@
 # FreeVideo 方案设计文档
 
+## 2026-11-28 全站 SEO 架构与服务端同构 Meta 注入
+
+- `backend/app/seo.py` 与 `frontend/src/seo.js` 维护一致的路由级 SEO 元数据表（6 个 `index, follow` 公开路由 + 私有/后台/404 `noindex, nofollow` 路由）。
+- `GET /robots.txt` 与 `GET /sitemap.xml` 根据 `PUBLIC_BASE_URL`（本地回退当前请求域名）动态输出爬虫抓取规则与 6 个规范公开页面的 XML 站点地图。
+- `main.spa` 在返回 `frontend/dist/index.html` 时调用 `seo.render_spa_html`，在服务端直接替换对应路由的 `<title>`、`description`、`keywords`、`robots`、`googlebot`、`canonical`、`og:*`、`twitter:*` 及 JSON-LD 中的站点绝对地址，使无 JS 执行能力的爬虫与社交分享卡片抓取任意子路由时均能读取准确的页面级元信息；前端 `router.afterEach` 调用 `applyRouteSeo` 在 SPA 内部导航时同步更新 DOM `<head>`。
+
 ## 2026-11-28 游客 2 个视频名额开放字幕与文案提取
 
 - `/api/subtitles`、`/api/transcript`、`/api/transcriptions`（POST）对未登录游客不再直接返回 401 `AUTH_REQUIRED`，而是调用 `guest.require_known(request, url)` 校验请求链接属于当前游客（Cookie 或 IP）已成功解析的 2 个视频名额（`guest_links`）内；未解析或超出 2 个名额返回 403 `GUEST_LIMIT`。

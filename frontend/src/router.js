@@ -2,32 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import Home from './pages/Home.vue'
 import { account, openAuth, safeRedirect } from './account.js'
 import { adminAuth, safeAdminRedirect } from './admin/adminAuth.js'
-
-const titles = {
-  apiKeys: 'API 密钥 - FreeVideo',
-  apiDocs: '视频文案提取 API 接入文档 - FreeVideo',
-  home: 'FreeVideo - 万能视频下载，1800+ 平台高清视频一键保存',
-  batch: '批量字幕提取与素材下载 - FreeVideo',
-  ai: 'AI 视频总结 & 字幕翻译 - FreeVideo',
-  learn: 'AI 视频学习工作台 - 大纲总结 · 思维导图 · 视频追问 - FreeVideo',
-  pricing: '会员定价 - FreeVideo Pro',
-  login: '登录 - FreeVideo',
-  register: '注册账号 - FreeVideo',
-  verifyEmail: '验证邮箱 - FreeVideo',
-  forgotPassword: '找回密码 - FreeVideo',
-  resetPassword: '设置新密码 - FreeVideo',
-  account: '个人中心 - FreeVideo',
-  history: '任务记录 - FreeVideo',
-  payResult: '支付结果 - FreeVideo',
-  notFound: '页面不存在 - FreeVideo',
-  adminLogin: '后台登录 - FreeVideo',
-  adminUsers: '注册用户管理 - FreeVideo 后台',
-  adminStaff: '后台账号管理 - FreeVideo 后台',
-  adminPricing: '会员价格管理 - FreeVideo 后台',
-  adminLimits: '套餐额度管理 - FreeVideo 后台',
-  adminHistory: '提取记录 - FreeVideo 后台',
-  adminNotFound: '后台页面不存在 - FreeVideo',
-}
+import { applyRouteSeo } from './seo.js'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -87,6 +62,6 @@ router.beforeEach(async (to, from) => {
   return true
 })
 
-router.afterEach((to) => { document.title = titles[to.name] || titles.home })
+router.afterEach((to) => { applyRouteSeo(to) })
 
 export default router

@@ -579,6 +579,27 @@ class UIRegression(unittest.TestCase):
             expect(self.page.get_by_role('dialog')).not_to_be_visible()
         self.assertEqual(posted, [])
 
+    def test_seo_meta_canonical_robots_and_json_ld(self):
+        self.page.goto(BASE + '/')
+        self.assertIn('在线视频文案提取', self.page.title())
+        desc = self.page.locator('meta[name="description"]').get_attribute('content')
+        keywords = self.page.locator('meta[name="keywords"]').get_attribute('content')
+        robots = self.page.locator('meta[name="robots"]').get_attribute('content')
+        canonical = self.page.locator('link[rel="canonical"]').get_attribute('href')
+        self.assertIn('视频文案提取', desc)
+        self.assertIn('视频转文字', keywords)
+        self.assertIn('index, follow', robots)
+        self.assertEqual(canonical, BASE + '/')
+        schemas = self.page.evaluate("""() => Array.from(document.querySelectorAll('script[type="application/ld+json"]')).map(s => JSON.parse(s.textContent)['@type'])""")
+        self.assertEqual(schemas, ['WebSite', 'Organization', 'WebPage', 'SoftwareApplication', 'FAQPage'])
+        self.page.goto(BASE + '/batch')
+        expect(self.page).to_have_title('批量视频文案提取与素材打包下载 - 在线批量字幕转文字工具 - FreeVideo')
+        self.assertEqual(self.page.locator('link[rel="canonical"]').get_attribute('href'), BASE + '/batch')
+        self.assertIn('index, follow', self.page.locator('meta[name="robots"]').get_attribute('content'))
+        self.page.goto(BASE + '/no-such-page')
+        expect(self.page).to_have_title('页面不存在 - FreeVideo')
+        self.assertEqual(self.page.locator('meta[name="robots"]').get_attribute('content'), 'noindex, nofollow')
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
