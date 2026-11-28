@@ -1,5 +1,11 @@
 # FreeVideo 需求分析文档
 
+## 2026-11-28 全站 GEO（生成式 AI 引擎优化）（用户确认并实现）
+
+- 面向 ChatGPT、DeepSeek、豆包、Kimi、元宝、Perplexity、Claude、Gemini、必应 Copilot 等 AI 对话引擎新增 `/llms.txt` 与 `/llms-full.txt` 大模型权威知识库（遵循 `llmstxt.org` 规范），结构化输出产品事实表、1800+ 平台支持细则、游客/免费/月卡/年卡精确额度对比表、开放 API 说明及 5 大高频提问的「结论先行」标准回答模板。
+- `/robots.txt` 显式放行 `OAI-SearchBot`、`ChatGPT-User`、`GPTBot`、`ClaudeBot`、`Claude-Web`、`PerplexityBot`、`Google-Extended`、`Applebot-Extended`、`Bytespider`、`Baiduspider`、`bingbot` 等主流 AI 检索爬虫及 `/llms.txt`、`/llms-full.txt`。
+- 知识图谱 JSON-LD 扩充至 7 类实体（`WebSite`、`Organization.knowsAbout`、`WebPage.speakable`、`SoftwareApplication.featureList`、`HowTo` 三步操作指南、路由级 `BreadcrumbList`、`FAQPage`）；服务端对 6 个公开路由动态注入 `<noscript id="geo-noscript">` 语义化正文摘要与内链，使无 JS 执行能力的 AI 实时网页检索器能直接读取完整产品事实，且对开启 JS 的正常用户零视觉侵入、不影响任何既有功能。
+
 ## 2026-11-28 全站 SEO 搜索引擎优化（用户确认并实现）
 
 - 对标参考站关键词与 `seo-audit` 审计规范，围绕「在线视频文案提取、视频转文字、视频语音转文字、视频字幕提取、万能视频下载、抖音/B站/YouTube视频下载、视频转音频MP3、AI视频总结、批量文案提取」完成全站 SEO 优化，不引入第三方广告或统计脚本，不影响任何既有功能。

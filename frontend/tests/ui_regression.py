@@ -591,7 +591,7 @@ class UIRegression(unittest.TestCase):
         self.assertIn('index, follow', robots)
         self.assertEqual(canonical, BASE + '/')
         schemas = self.page.evaluate("""() => Array.from(document.querySelectorAll('script[type="application/ld+json"]')).map(s => JSON.parse(s.textContent)['@type'])""")
-        self.assertEqual(schemas, ['WebSite', 'Organization', 'WebPage', 'SoftwareApplication', 'FAQPage'])
+        self.assertEqual(schemas, ['WebSite', 'Organization', 'WebPage', 'SoftwareApplication', 'HowTo', 'BreadcrumbList', 'FAQPage'])
         self.page.goto(BASE + '/batch')
         expect(self.page).to_have_title('批量视频文案提取与素材打包下载 - 在线批量字幕转文字工具 - FreeVideo')
         self.assertEqual(self.page.locator('link[rel="canonical"]').get_attribute('href'), BASE + '/batch')

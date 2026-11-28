@@ -1,5 +1,11 @@
 # FreeVideo 方案设计文档
 
+## 2026-11-28 全站 GEO（生成式 AI 引擎优化）架构
+
+- `seo.render_llms_txt` 与 `seo.render_llms_full_txt`（`GET /llms.txt`、`GET /llms-full.txt`）按当前站点 `base_url` 动态输出 Markdown 格式的产品事实卡、套餐额度对比矩阵、开放 API 接口摘要及高频问答模块，供大模型爬虫与 RAG 检索器零噪音引用。
+- `seo.render_robots_txt` 为 `AI_CRAWLERS` 列表中的各主流 AI 搜索引擎爬虫生成独立 `User-agent` 放行段（含 `/llms.txt` 与 `/llms-full.txt`），同时保持 `/api/`、`/admin`、`/account` 等私有路径隔离。
+- `seo.render_spa_html` 在服务端按请求路径动态生成 `ld-webpage`（含 `SpeakableSpecification`）、`ld-breadcrumb`（`BreadcrumbList`）及 `<noscript id="geo-noscript">` 路由专属语义正文（H1、功能详情、真实额度说明、全站公开页与 `llms.txt` 内链），与 `frontend/index.html` 的 `HowTo`、`SoftwareApplication.featureList`、`Organization.knowsAbout`、`FAQPage` 共同构成 7 组完整知识图谱。
+
 ## 2026-11-28 全站 SEO 架构与服务端同构 Meta 注入
 
 - `backend/app/seo.py` 与 `frontend/src/seo.js` 维护一致的路由级 SEO 元数据表（6 个 `index, follow` 公开路由 + 私有/后台/404 `noindex, nofollow` 路由）。

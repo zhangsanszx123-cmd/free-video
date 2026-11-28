@@ -401,6 +401,16 @@ def sitemap_xml(request: Request):
     return Response(seo.render_sitemap_xml(seo.resolve_base_url(request)), media_type='application/xml; charset=utf-8')
 
 
+@app.get('/llms.txt', include_in_schema=False)
+def llms_txt(request: Request):
+    return PlainTextResponse(seo.render_llms_txt(seo.resolve_base_url(request)))
+
+
+@app.get('/llms-full.txt', include_in_schema=False)
+def llms_full_txt(request: Request):
+    return PlainTextResponse(seo.render_llms_full_txt(seo.resolve_base_url(request)))
+
+
 if config.FRONTEND_DIST.exists():
     dist = config.FRONTEND_DIST.resolve()
     if (dist / "assets").exists():
