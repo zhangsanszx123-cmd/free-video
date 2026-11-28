@@ -1,8 +1,9 @@
 <script setup>
-import { onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import Icon from '../components/Icon.vue'
 import ResultCard from '../components/ResultCard.vue'
+import GuestAiTrialPanel from '../components/GuestAiTrialPanel.vue'
 import FaqList from '../components/FaqList.vue'
 import { api } from '../api.js'
 import { account, openAuth } from '../account.js'
@@ -22,6 +23,153 @@ const info = ref(null)
 const parsedUrl = ref('')
 const activeView = ref('download')
 const autoSummarizeSeq = ref(0)
+const guestTrial = ref(null)
+const guestAvailable = ref(null)
+const guestSubmitting = ref(false)
+const guestWaiting = ref(false)
+const guestPollError = ref('')
+let guestController
+let guestPollTimer
+let guestVersion = 0
+let guestTaskUrl = ''
+const guestLoginCodes = ['GUEST_AI_LIMIT', 'GUEST_AI_TOO_LONG', 'GUEST_AI_DURATION_UNKNOWN', 'GUEST_AI_TEXT_TOO_LONG']
+const processing = computed(() => loading.value || (activeView.value === 'ai' && (guestSubmitting.value || guestWaiting.value)))
+const showGuestTrial = computed(() => activeView.value === 'ai' && Boolean(guestTrial.value))
+
+function stopGuestWork() {
+  guestVersion++
+  clearTimeout(guestPollTimer)
+  guestController?.abort()
+  guestController = null
+  guestSubmitting.value = false
+  guestWaiting.value = false
+}
+
+function guestCurrent(current, version) {
+  return !disposed && !account.loggedIn && current === actionVersion && version === guestVersion && activeView.value === 'ai'
+}
+
+function loginForAi(notice, resume = true) {
+  const current = actionVersion
+  openAuth({ notice, onSuccess: resume ? () => {
+    if (!disposed && current === actionVersion) submitWithView('ai')
+  } : undefined })
+}
+
+function applyGuestTask(task, current, version, promptLogin = false) {
+  if (!guestCurrent(current, version) || !task?.id) return
+  guestTrial.value = task
+  guestTaskUrl ||= task.url || task.info?.url || ''
+  guestPollError.value = ''
+  if (['queued', 'running'].includes(task.status)) {
+    guestWaiting.value = true
+    guestPollTimer = setTimeout(() => pollGuestTask(task.id, current, version, promptLogin), 2000)
+  } else {
+    guestWaiting.value = false
+    if (task.status === 'done' || task.summary) guestAvailable.value = false
+    if (promptLogin && guestLoginCodes.includes(task.error_code)) {
+      loginForAi(task.error || '游客可体验 1 个最长 3 分钟的视频，登录后可继续总结。')
+    }
+  }
+}
+
+async function pollGuestTask(id, current, version, promptLogin = false) {
+  if (!guestCurrent(current, version)) return
+  guestController = new AbortController()
+  try {
+    const task = await api.guestAiTask(id, guestController.signal)
+    applyGuestTask(task, current, version, promptLogin)
+  } catch (e) {
+    if (!guestCurrent(current, version) || e.name === 'AbortError') return
+    guestWaiting.value = false
+    guestPollError.value = '暂时无法查询处理结果。后台任务可能仍在进行，请点击「查看处理状态」查询原任务。'
+  }
+}
+
+async function restoreGuestTrial(current = actionVersion) {
+  await account.ensure()
+  if (disposed || account.loggedIn || current !== actionVersion) return
+  const controller = new AbortController()
+  guestController = controller
+  try {
+    const state = await api.guestAiStatus(controller.signal)
+    if (disposed || account.loggedIn || current !== actionVersion) return
+    guestAvailable.value = state.available
+    if (!state.task?.id) return
+    const restoredUrl = state.task.url || state.task.info?.url || ''
+    if (restoredUrl) url.value = restoredUrl
+    activeView.value = 'ai'
+    guestTaskUrl = restoredUrl
+    applyGuestTask(state.task, actionVersion, guestVersion)
+  } catch { /* Passive restoration must not interrupt browsing or prompt login. */ }
+}
+
+async function submitGuestTrial(target, current) {
+  stopGuestWork()
+  const version = guestVersion
+  guestController = new AbortController()
+  guestSubmitting.value = true
+  guestPollError.value = ''
+  guestTaskUrl = target
+  let submitted = false
+  try {
+    // The signed cookie must arrive before expensive work is accepted, so a lost
+    // POST response can still be recovered by this browser rather than only its IP.
+    const state = await api.guestAiStatus(guestController.signal)
+    if (!guestCurrent(current, version)) return
+    if (typeof state.available !== 'boolean') throw new Error('无法确认游客体验状态')
+    guestAvailable.value = state.available
+    const savedUrl = state.task?.url || state.task?.info?.url
+    if (state.task?.id && savedUrl === target && ['queued', 'running', 'done', 'uncertain'].includes(state.task.status)) {
+      applyGuestTask(state.task, current, version, true)
+      return
+    }
+    if (!state.available && !state.task?.id) {
+      loginForAi('游客 AI 体验已用完，请登录后继续')
+      return
+    }
+    submitted = true
+    const task = await api.guestAiSummary(target, guestController.signal)
+    if (!guestCurrent(current, version)) return
+    if (!task?.id) throw new Error('未能确认任务是否接收，请刷新页面查询原任务。')
+    applyGuestTask(task, current, version, true)
+  } catch (e) {
+    if (!guestCurrent(current, version) || e.name === 'AbortError') return
+    if (guestLoginCodes.includes(e.code)) {
+      guestAvailable.value = e.code === 'GUEST_AI_LIMIT' ? false : guestAvailable.value
+      loginForAi(e.message)
+    } else {
+      error.value = !submitted ? '暂时无法确认游客体验状态，请稍后重试。' : e.code ? e.message : '提交结果暂时无法确认，请刷新页面恢复查询原任务，不要重复提交。'
+    }
+  } finally {
+    if (guestCurrent(current, version)) guestSubmitting.value = false
+  }
+}
+
+function refreshGuestTrial() {
+  const current = ++actionVersion
+  stopGuestWork()
+  if (guestTrial.value?.id) {
+    guestWaiting.value = true
+    pollGuestTask(guestTrial.value.id, current, guestVersion)
+  } else restoreGuestTrial(current)
+}
+
+function retryGuestTrial() {
+  if (guestTaskUrl) url.value = guestTaskUrl
+  submitWithView('ai')
+}
+
+function loginFromGuestTrial() {
+  loginForAi('登录后可继续总结更多视频，并使用思维导图和追问。', false)
+}
+
+watch(() => account.user?.id, (now, before) => {
+  if (now === before) return
+  stopGuestWork()
+  // Keep a finished trial readable; never publish a late guest reply into a new account session.
+  if (now && !guestTrial.value?.summary) guestTrial.value = null
+}, { flush: 'sync' })
 
 async function paste() {
   try {
@@ -38,7 +186,7 @@ onMounted(async () => {
   checkHealth()
   const current = actionVersion
   const sharedUrl = route.query.url ? String(route.query.url) : ''
-  // AI summary requires login; guests opening a shared ?view=ai link fall back to the download view.
+  // Shared AI links retain the guest download-view fallback; explicit AI submits can use the trial.
   if (route.query.view === 'ai') {
     await account.ensure()
     if (disposed || current !== actionVersion) return
@@ -48,13 +196,16 @@ onMounted(async () => {
   if (sharedUrl) {
     url.value = sharedUrl
     submitWithView(activeView.value)
-  }
+  } else restoreGuestTrial(current)
 })
 
 async function parse() {
+  const current = actionVersion
   const target = url.value.trim()
   if (!target || loading.value) return false
   error.value = ''
+  // A new result remounts the AI panel; only a current explicit submit may run it.
+  autoSummarizeSeq.value = 0
   info.value = null
   try {
     const result = await requestParse(target)
@@ -64,59 +215,65 @@ async function parse() {
     return true
   } catch (e) {
     error.value = e.message
-    if (e.code === 'GUEST_LIMIT') openAuth({ notice: e.message, onSuccess: () => { if (!disposed) submitWithView(activeView.value) } })
+    if (e.code === 'GUEST_LIMIT' && current === actionVersion) openAuth({ notice: e.message, onSuccess: () => { if (!disposed && current === actionVersion) submitWithView(activeView.value) } })
     return false
   }
 }
 
-/** AI summary is login-only (backend returns 401 too): guests get the login dialog, then the action resumes. */
-async function aiAllowed(resume) {
-  const current = actionVersion
-  await account.ensure()
-  if (disposed || current !== actionVersion) return false
-  if (account.loggedIn) return true
-  openAuth({ notice: '登录后即可使用 AI 视频总结', onSuccess: () => { if (!disposed && current === actionVersion) resume() } })
-  return false
-}
-
 async function submitWithView(view = 'download') {
-  actionVersion++
-  if (view === 'ai' && !(await aiAllowed(() => submitWithView('ai')))) return
+  if (processing.value) return
+  const current = ++actionVersion
+  stopGuestWork()
   activeView.value = view
   const target = url.value.trim()
   if (!target) {
     urlInputEl.value?.focus()
     return
   }
-  if (loading.value) return
+  error.value = ''
+  if (view === 'ai') {
+    await account.ensure()
+    if (disposed || current !== actionVersion) return
+    if (!account.loggedIn) {
+      if (guestTrial.value?.id && guestTaskUrl === target && ['queued', 'running', 'done', 'uncertain'].includes(guestTrial.value.status)) {
+        guestWaiting.value = true
+        await pollGuestTask(guestTrial.value.id, current, guestVersion)
+        return
+      }
+      await submitGuestTrial(target, current)
+      return
+    }
+    guestTrial.value = null
+  }
   const needParse = !info.value || parsedUrl.value !== target
   const ok = needParse ? await parse() : true
-  if (ok && view === 'ai' && activeView.value === 'ai' && url.value.trim() === target) {
+  if (ok && current === actionVersion && view === 'ai' && activeView.value === 'ai' && url.value.trim() === target) {
     autoSummarizeSeq.value += 1
   }
 }
 
 async function selectTab(view) {
   actionVersion++
-  if (view === 'ai' && !(await aiAllowed(() => selectTab('ai')))) return
+  stopGuestWork()
   activeView.value = view
+  // AI mode is a preview; authentication and work begin at the submit button.
+  if (view === 'ai') return
   const target = url.value.trim()
   if (!target || loading.value) return
   const needParse = !info.value || parsedUrl.value !== target
-  const ok = needParse ? await parse() : true
-  if (ok && view === 'ai' && activeView.value === 'ai' && url.value.trim() === target) {
-    autoSummarizeSeq.value += 1
-  }
+  if (needParse) await parse()
 }
 function clearInput() {
   actionVersion++
+  stopGuestWork()
   cancelParse()
   url.value = ''
   info.value = null
   parsedUrl.value = ''
   error.value = ''
+  guestTrial.value = null
 }
-watch(url, () => { actionVersion++; cancelParse(); error.value = '' }, { flush: 'sync' })
+watch(url, () => { actionVersion++; stopGuestWork(); cancelParse(); error.value = ''; guestPollError.value = '' }, { flush: 'sync' })
 async function checkHealth() {
   healthController = new AbortController()
   const timeout = setTimeout(() => healthController.abort(), 5000)
@@ -127,7 +284,7 @@ async function checkHealth() {
   finally { clearTimeout(timeout) }
   if (!disposed) healthTimer = setTimeout(checkHealth, 30000)
 }
-onUnmounted(() => { disposed = true; clearTimeout(healthTimer); healthController?.abort() })
+onUnmounted(() => { disposed = true; stopGuestWork(); clearTimeout(healthTimer); healthController?.abort() })
 </script>
 
 <template>
@@ -137,7 +294,7 @@ onUnmounted(() => { disposed = true; clearTimeout(healthTimer); healthController
     <div class="pointer-events-none absolute -right-24 top-10 h-72 w-72 rounded-full bg-violet-400/20 blur-3xl"></div>
     <div class="relative mx-auto max-w-5xl px-4 text-center sm:px-6">
       <div class="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50/90 px-3 py-1 text-xs font-semibold text-amber-700">
-        <Icon name="gift" :size="14" /> 游客可免费下载 2 个视频<span class="hidden sm:inline">，登录后不限次数，语音识别按月度额度使用</span>
+        <Icon name="gift" :size="14" /> 游客可下载 2 个视频 · AI 总结可体验 1 次<span class="hidden sm:inline">（最长 3 分钟，含无字幕转写）</span>
         <RouterLink to="/pricing" class="text-amber-800 underline-offset-2 hover:underline">查看 →</RouterLink>
       </div>
       <h1 class="mt-5 text-3xl font-extrabold leading-tight tracking-tight text-slate-950 sm:text-5xl lg:text-6xl">
@@ -164,7 +321,7 @@ onUnmounted(() => { disposed = true; clearTimeout(healthTimer); healthController
               id="mode-tab-download"
               role="tab"
               :aria-selected="activeView === 'download'"
-              :aria-controls="loading || info ? 'result-panel' : undefined"
+              :aria-controls="loading || info || guestTrial ? 'result-panel' : undefined"
               class="inline-flex h-10 cursor-pointer items-center gap-2 rounded-xl px-4 text-sm font-extrabold transition-all duration-200 sm:px-6 sm:text-[15px]"
               :class="activeView === 'download'
                 ? 'bg-gradient-to-r from-indigo-600 via-violet-600 to-purple-600 text-white shadow-[0_6px_16px_-4px_rgba(124,58,237,0.55)]'
@@ -181,7 +338,7 @@ onUnmounted(() => { disposed = true; clearTimeout(healthTimer); healthController
               id="mode-tab-ai"
               role="tab"
               :aria-selected="activeView === 'ai'"
-              :aria-controls="loading || info ? 'result-panel' : undefined"
+              :aria-controls="loading || info || guestTrial ? 'result-panel' : undefined"
               class="inline-flex h-10 cursor-pointer items-center gap-2 rounded-xl px-4 text-sm font-extrabold transition-all duration-200 sm:px-6 sm:text-[15px]"
               :class="activeView === 'ai'
                 ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-[0_6px_16px_-4px_rgba(37,99,235,0.5)]'
@@ -221,18 +378,18 @@ onUnmounted(() => { disposed = true; clearTimeout(healthTimer); healthController
           </div>
           <button
             type="submit"
-            :disabled="loading"
+            :disabled="processing"
             class="inline-flex min-h-[60px] cursor-pointer items-center justify-center gap-2 rounded-2xl px-8 text-base font-extrabold whitespace-nowrap text-white transition-all duration-200 hover:-translate-y-px disabled:cursor-not-allowed disabled:opacity-55 sm:min-w-[164px]"
             :class="activeView === 'ai'
               ? 'bg-gradient-to-br from-blue-600 to-indigo-600 shadow-[0_12px_26px_-8px_rgba(37,99,235,0.6)] hover:shadow-[0_16px_30px_-8px_rgba(37,99,235,0.75)]'
               : 'bg-gradient-to-br from-indigo-600 via-violet-600 to-purple-600 shadow-[0_12px_26px_-8px_rgba(124,58,237,0.65)] hover:shadow-[0_16px_30px_-8px_rgba(124,58,237,0.8)]'"
           >
             <Icon
-              :name="loading ? 'loader' : (activeView === 'ai' ? 'sparkles' : 'zap')"
+              :name="processing ? 'loader' : (activeView === 'ai' ? 'sparkles' : 'zap')"
               :size="19"
-              :class="{ 'animate-spin': loading }"
+              :class="{ 'animate-spin': processing }"
             />
-            <span>{{ loading ? '解析中…' : (activeView === 'ai' ? 'AI 总结' : '立即解析') }}</span>
+            <span>{{ loading ? '解析中…' : (guestSubmitting || guestWaiting) && activeView === 'ai' ? '处理中…' : (activeView === 'ai' ? 'AI 总结' : '立即解析') }}</span>
           </button>
         </form>
 
@@ -253,9 +410,13 @@ onUnmounted(() => { disposed = true; clearTimeout(healthTimer); healthController
             </span>
           </div>
           <span class="hidden items-center gap-1 text-slate-400 md:inline-flex">
-            {{ activeView === 'ai' ? '已选：AI 视频总结模式 · 自动生成大纲与脑图' : '已选：素材与文案下载模式 · 支持视频 / MP3 / 字幕' }}
+            {{ activeView === 'ai' ? '已选：AI 视频总结模式 · 点击按钮开始总结' : '已选：素材与文案下载模式 · 支持视频 / MP3 / 字幕' }}
           </span>
         </div>
+        <p v-if="activeView === 'ai' && !account.loggedIn" class="mt-3 rounded-xl bg-blue-50 px-3 py-2.5 text-xs leading-6 text-blue-900">
+          {{ guestAvailable === false ? '游客体验名额已使用。已有结果可继续查看，登录后可总结更多视频。' : '游客可免费总结 1 个视频，最长 3 分钟，含无字幕转写。' }}
+          <span class="block text-blue-800">累计一次，按浏览器与 IP 共同计次，与游客下载名额分开。</span>
+        </p>
         <p role="alert" v-if="error" class="mt-3 flex items-start gap-2 rounded-xl bg-rose-50 px-3 py-2.5 text-sm text-rose-600">
           <Icon name="alert" :size="16" class="mt-0.5 shrink-0" /> {{ error }}
         </p>
@@ -302,8 +463,12 @@ onUnmounted(() => { disposed = true; clearTimeout(healthTimer); healthController
     </div>
 
     <!-- ResultCard (max-w-6xl = 1152px wide workspace) -->
-    <div v-if="loading || info" id="result-panel" role="tabpanel" :aria-labelledby="`mode-tab-${activeView}`" class="relative mx-auto mt-6 max-w-6xl px-3 text-left sm:mt-8 sm:px-4 md:mt-12">
+    <div v-if="showGuestTrial || ((loading || info) && !(activeView === 'ai' && !account.loggedIn))" id="result-panel" role="tabpanel" :aria-labelledby="`mode-tab-${activeView}`" class="relative mx-auto mt-6 max-w-6xl px-3 text-left sm:mt-8 sm:px-4 md:mt-12">
+      <GuestAiTrialPanel v-if="showGuestTrial"
+        :task="guestTrial" :waiting="guestWaiting" :poll-error="guestPollError"
+        @login="loginFromGuestTrial" @refresh="refreshGuestTrial" @retry="retryGuestTrial" />
       <ResultCard
+        v-else
         :info="info"
         :loading="loading"
         :active-view="activeView"
@@ -407,7 +572,7 @@ onUnmounted(() => { disposed = true; clearTimeout(healthTimer); healthController
     <div class="relative mx-auto max-w-5xl overflow-hidden rounded-3xl bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 px-6 py-12 text-center text-white shadow-2xl shadow-indigo-500/30 sm:py-16">
       <div class="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-white/10 blur-2xl"></div>
       <h2 class="text-2xl font-extrabold sm:text-4xl">登录即可免费使用，按需再升级</h2>
-      <p class="mx-auto mt-3 max-w-xl text-sm text-indigo-100 sm:text-base">游客可免费下载 2 个视频；登录后下载不限次数，字幕提取、批量、AI 总结都能用，每月还有免费语音识别额度。需要更多时长与次数，可升级月卡或年卡。</p>
+      <p class="mx-auto mt-3 max-w-xl text-sm text-indigo-100 sm:text-base">游客可免费下载 2 个视频，另可体验 1 个最长 3 分钟的视频 AI 总结，含无字幕转写。登录后下载不限次数，可总结更多视频、使用批量提取与每月语音识别额度；需要更多时长与次数，可升级月卡或年卡。</p>
       <div class="mt-7 flex flex-col justify-center gap-3 sm:flex-row">
         <RouterLink to="/pricing" class="btn-gold inline-flex items-center justify-center gap-2 rounded-xl px-8 py-3.5 font-bold">
           <Icon name="crown" :size="18" /> 查看会员与识别时长

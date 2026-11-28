@@ -152,8 +152,12 @@ class AccountUI(unittest.TestCase):
         page.goto(BASE + '/register')
         page.wait_for_url(BASE + '/')  # logged-in users skip the backup pages
 
-    def test_home_ai_tab_resumes_after_login(self):
+    def test_home_ai_submit_resumes_after_login(self):
         page = self.new_page()
+        # Exercise an exhausted visitor's real account login, not a paid guest trial.
+        page.route('**/api/guest/ai-summary', lambda r: r.fulfill(
+            status=403 if r.request.method == 'POST' else 200,
+            json=dict(detail='游客 AI 体验已用完，请登录后继续', code='GUEST_AI_LIMIT') if r.request.method == 'POST' else dict(available=False, max_seconds=180, task=None)))
         page.route('**/api/parse', lambda r: r.fulfill(json=INFO))
         page.route('**/api/transcript*', lambda r: r.fulfill(status=400, json=dict(detail='无字幕', code='NO_SUBTITLES')))
         username = new_username()
@@ -164,8 +168,11 @@ class AccountUI(unittest.TestCase):
         ai_tab = page.get_by_role('tab', name='AI 视频总结')
         ai_tab.click()
         d = self.dialog(page)
-        expect(d.get_by_role('status').filter(has_text='登录后即可使用 AI 视频总结')).to_be_visible()
-        expect(ai_tab).to_have_attribute('aria-selected', 'false')
+        expect(d).not_to_be_visible()
+        expect(ai_tab).to_have_attribute('aria-selected', 'true')
+        page.get_by_role('button', name='AI 总结', exact=True).click()
+        expect(d.get_by_role('status').filter(has_text='游客 AI 体验已用完，请登录后继续')).to_be_visible()
+        expect(ai_tab).to_have_attribute('aria-selected', 'true')
         self.dialog_login(page, username)
         expect(d).to_be_hidden()
         expect(ai_tab).to_have_attribute('aria-selected', 'true')

@@ -162,6 +162,30 @@ CREATE TABLE IF NOT EXISTS guest_links (
   KEY idx_guest_raw (subject, raw_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Trial result ownership is cookie-only. Cookie and IP quota claims have no TTL.
+CREATE TABLE IF NOT EXISTS guest_ai_trials (
+  id CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
+  owner CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  raw_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  video_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  state VARCHAR(16) NOT NULL,
+  payload JSON NOT NULL,
+  transcription_id CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  created_at DATETIME(6) NOT NULL,
+  updated_at DATETIME(6) NOT NULL,
+  expires_at DATETIME(6) NOT NULL,
+  KEY idx_guest_ai_owner(owner,created_at),
+  KEY idx_guest_ai_state(state),
+  KEY idx_guest_ai_expiry(expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS guest_ai_subjects (
+  subject CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
+  trial_id CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  state VARCHAR(16) NOT NULL DEFAULT 'available',
+  KEY idx_guest_ai_claim(trial_id,subject)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS transcription_records (
   id CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
   user_id BIGINT UNSIGNED NOT NULL,
@@ -237,6 +261,36 @@ CREATE TABLE IF NOT EXISTS payment_events (
   detail JSON NULL,
   created_at DATETIME(6) NOT NULL,
   KEY idx_payment_event_order (out_trade_no, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS open_api_keys (
+  id CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL,
+  name VARCHAR(50) NOT NULL,
+  token_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL UNIQUE,
+  credential_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  prefix VARCHAR(20) CHARACTER SET ascii NOT NULL,
+  created_at DATETIME(6) NOT NULL,
+  last_used_at DATETIME(6) NULL,
+  revoked_at DATETIME(6) NULL,
+  KEY idx_api_keys_user(user_id),
+  CONSTRAINT fk_api_key_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS open_api_requests (
+  id CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL,
+  key_id CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  idempotency_key VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  transcription_id CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  state VARCHAR(16) NOT NULL,
+  failure JSON NULL,
+  created_at DATETIME(6) NOT NULL,
+  expires_at DATETIME(6) NOT NULL,
+  UNIQUE KEY uq_api_request(user_id,idempotency_key),
+  KEY idx_api_request_expiry(expires_at),
+  CONSTRAINT fk_api_request_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS sessions (

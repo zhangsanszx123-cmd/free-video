@@ -49,7 +49,7 @@ onUnmounted(() => { document.body.style.overflow = previousOverflow })
         </div>
         <h3 id="upgrade-title" class="mt-4 text-xl font-bold text-slate-950">{{ ui.upgradeReason || '开通 Pro' }}功能即将上线</h3>
         <p id="upgrade-description" class="mt-2 text-sm leading-relaxed text-slate-500">
-          <b class="text-slate-800">登录后下载视频、音频与提取平台字幕免费</b>（游客可免费下载 2 个视频）；语音识别按会员月度额度扣除时长，免费用户也可登录后使用每月赠送额度。会员套餐与开通方式见定价页。
+          <b class="text-slate-800">登录后下载视频、音频与提取平台字幕免费</b>。游客可下载 2 个视频，另可体验 1 个最长 3 分钟的视频 AI 总结（含无字幕转写）。登录后的语音识别按会员月度额度扣除时长，免费用户也可使用每月赠送额度。会员套餐与开通方式见定价页。
         </p>
         <ul class="mt-4 space-y-2 text-sm text-slate-700">
           <li v-for="t in ['登录后视频下载、音频提取与平台字幕免费', '免费按注册时间、Pro 按开通时间逐月重置', 'Pro 额度不叠加免费额度', '任务记录与转录文本保存 30 天', '已有文稿复制和导出不重复扣时长']" :key="t" class="flex items-center gap-2">

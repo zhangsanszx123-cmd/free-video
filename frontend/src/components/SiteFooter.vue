@@ -29,6 +29,7 @@
           <li><RouterLink to="/#steps" class="hover:text-indigo-600">使用说明</RouterLink></li>
           <li><RouterLink to="/#faq" class="hover:text-indigo-600">常见问题</RouterLink></li>
           <li><RouterLink to="/pricing" class="hover:text-indigo-600">会员定价</RouterLink></li>
+          <li><RouterLink to="/account/api/docs" class="hover:text-indigo-600">API 接入文档</RouterLink></li>
         </ul>
       </div>
     </div>

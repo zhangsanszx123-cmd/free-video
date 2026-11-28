@@ -20,6 +20,7 @@ const links = [
   { to: '/', label: '视频下载', icon: 'download' },
   { to: '/learn', label: 'AI 总结', icon: 'sparkles' },
   { to: '/batch', label: '批量提取', icon: 'layers' },
+  { to: '/account/api/docs', label: 'API', icon: 'link' },
   { to: '/pricing', label: '定价', icon: 'crown' },
 ]
 function openDialog(tab) {
@@ -86,7 +87,7 @@ onUnmounted(() => {
 
       <div class="hidden items-center gap-1 md:ml-auto md:mr-2 md:flex">
         <RouterLink v-for="l in links" :key="l.to" :to="l.to"
-          class="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-indigo-50 hover:text-indigo-600"
+          class="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-indigo-50 hover:text-indigo-600"
           exact-active-class="!bg-indigo-50 !text-indigo-600">
           <Icon :name="l.icon" :size="16" /> {{ l.label }}
         </RouterLink>
@@ -97,7 +98,7 @@ onUnmounted(() => {
           <button type="button" class="flex items-center gap-2 rounded-xl py-1 pl-1 pr-2 text-sm font-medium text-slate-700 transition hover:bg-indigo-50"
             :aria-expanded="menuOpen" aria-haspopup="menu" aria-controls="account-menu" @click="menuOpen = !menuOpen">
             <UserAvatar :name="displayName" :size="32" />
-            <span class="max-w-28 truncate">{{ displayName }}</span>
+            <span class="hidden max-w-28 truncate lg:block">{{ displayName }}</span>
             <Icon name="chevron" :size="14" class="text-slate-400 transition" :class="menuOpen ? 'rotate-180' : ''" />
           </button>
           <div v-if="menuOpen" id="account-menu" role="menu"
@@ -117,6 +118,7 @@ onUnmounted(() => {
             <QuotaCard compact class="mb-2" />
             <RouterLink to="/history?status=active" role="menuitem" class="flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm text-slate-700 hover:bg-indigo-50"><Icon name="clock" :size="16" />执行中任务</RouterLink>
             <RouterLink to="/history" role="menuitem" class="flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm text-slate-700 hover:bg-indigo-50"><Icon name="file" :size="16" />历史任务</RouterLink>
+            <RouterLink to="/account/api" role="menuitem" class="flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm text-slate-700 hover:bg-indigo-50"><Icon name="link" :size="16" />API 密钥</RouterLink>
             <button type="button" role="menuitem" :disabled="loggingOut" class="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm text-slate-700 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-60" @click="logout">
               <Icon name="logout" :size="16" /> {{ loggingOut ? '正在退出…' : '退出登录' }}
             </button>
@@ -155,6 +157,7 @@ onUnmounted(() => {
           <QuotaCard compact class="mb-2" />
           <RouterLink to="/history?status=active" class="flex min-h-11 items-center gap-3 rounded-xl px-3 py-3 font-medium text-slate-800 hover:bg-indigo-50"><Icon name="clock" :size="18" />执行中任务</RouterLink>
           <RouterLink to="/history" class="flex min-h-11 items-center gap-3 rounded-xl px-3 py-3 font-medium text-slate-800 hover:bg-indigo-50"><Icon name="file" :size="18" />历史任务</RouterLink>
+          <RouterLink to="/account/api" class="flex min-h-11 items-center gap-3 rounded-xl px-3 py-3 font-medium text-slate-800 hover:bg-indigo-50"><Icon name="link" :size="18" />API 密钥</RouterLink>
         </template>
         <RouterLink v-for="l in links" :key="l.to" :to="l.to"
           class="flex items-center gap-3 rounded-xl px-3 py-3 text-base font-medium text-slate-800 hover:bg-indigo-50"

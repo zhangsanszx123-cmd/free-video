@@ -45,6 +45,9 @@ async function call(path, { method = 'GET', body } = {}) {
 }
 
 export const accountApi = {
+  apiKeys: () => call('/api/account/api-keys'),
+  createApiKey: (name) => call('/api/account/api-keys', { method: 'POST', body: { name } }),
+  revokeApiKey: (id) => call(`/api/account/api-keys/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   membership: () => call('/api/account/membership'),
   plans: () => call('/api/plans'),
   createOrder: (plan, payType = 'alipay', quote = {}) => call('/api/pay/orders', { method: 'POST', body: { plan, pay_type: payType, ...quote } }),

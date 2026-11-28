@@ -62,6 +62,7 @@ def reset(token: str, password: str):
         cur.execute('UPDATE users SET password_hash=%s,password_changed_at=%s,updated_at=%s,created_at=IF(email_verified=0,%s,created_at),email_verified=1 WHERE id=%s',
                     (auth.hash_password(password), now, now, now, user['id']))
         cur.execute('DELETE FROM sessions WHERE user_id=%s', (user['id'],))
+        cur.execute('UPDATE open_api_keys SET revoked_at=%s WHERE user_id=%s AND revoked_at IS NULL', (now, user['id']))
         cur.execute('DELETE FROM password_resets WHERE user_id=%s', (user['id'],))
         cur.execute('DELETE FROM email_verifications WHERE user_id=%s', (user['id'],))
     auth.clear_login_failures(user['email'])

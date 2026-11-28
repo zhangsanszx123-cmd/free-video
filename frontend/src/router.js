@@ -4,6 +4,8 @@ import { account, openAuth, safeRedirect } from './account.js'
 import { adminAuth, safeAdminRedirect } from './admin/adminAuth.js'
 
 const titles = {
+  apiKeys: 'API 密钥 - FreeVideo',
+  apiDocs: '视频文案提取 API 接入文档 - FreeVideo',
   home: 'FreeVideo - 万能视频下载，1800+ 平台高清视频一键保存',
   batch: '批量字幕提取与素材下载 - FreeVideo',
   ai: 'AI 视频总结 & 字幕翻译 - FreeVideo',
@@ -30,6 +32,8 @@ const titles = {
 const router = createRouter({
   history: createWebHistory(),
   routes: [
+    { path: '/account/api', name: 'apiKeys', component: () => import('./pages/ApiKeys.vue'), meta: { requiresAuth: true } },
+    { path: '/account/api/docs', name: 'apiDocs', component: () => import('./pages/ApiDocs.vue') },
     { path: '/admin/login', name: 'adminLogin', component: () => import('./admin/pages/AdminLogin.vue'), meta: { admin: true, adminGuestOnly: true } },
     { path: '/admin', component: () => import('./admin/AdminLayout.vue'), meta: { admin: true, requiresAdmin: true }, children: [
       { path: '', redirect: '/admin/users' },

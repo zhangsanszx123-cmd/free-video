@@ -202,6 +202,7 @@ async function deleteAccount() {
           <p class="text-sm text-slate-500">{{ sections[0].description }}</p>
           <QuotaCard />
           <div class="flex flex-wrap gap-3">
+            <RouterLink to="/account/api" class="btn-ghost flex min-h-11 items-center gap-2 px-4 text-sm font-semibold"><Icon name="link" :size="18" />API 密钥与文档</RouterLink>
             <RouterLink to="/history?status=active" class="btn-ghost flex min-h-11 items-center gap-2 px-4 text-sm font-semibold"><Icon name="clock" :size="18" />执行中任务</RouterLink>
             <RouterLink to="/history" class="btn-ghost flex min-h-11 items-center gap-2 px-4 text-sm font-semibold"><Icon name="file" :size="18" />历史任务</RouterLink>
           </div>

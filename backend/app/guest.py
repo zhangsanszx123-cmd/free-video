@@ -45,6 +45,18 @@ def _subjects(request: Request) -> list[str]:
     return [s for s in (_cookie_subject(request), _ip_subject(request)) if s]
 
 
+def trial_identity(request: Request, response: Response) -> tuple[str, list[str]]:
+    """Share the signed visitor identity, without recording a download or charging a user."""
+    cookie = _cookie_subject(request)
+    if not cookie:
+        guest_id = secrets.token_hex(16)
+        response.set_cookie(COOKIE, f"{guest_id}.{_sign(guest_id)}", max_age=10 * 365 * 86400,
+                            httponly=True, secure=config.SESSION_SECURE, samesite='lax', path='/api')
+        cookie = 'c:' + guest_id
+    owner = _digest(cookie)
+    return owner, sorted({owner, _digest(_ip_subject(request))})
+
+
 def _limit_error() -> AccountError:
     return AccountError("GUEST_LIMIT", f"{LOGIN_HINT}。游客的 {LIMIT} 个视频名额已用完，请登录后继续", 403)
 

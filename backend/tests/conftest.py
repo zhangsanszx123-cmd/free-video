@@ -27,6 +27,9 @@ def tmp_downloads(tmp_path, monkeypatch, request):
     from app.batch_transcriptions import BatchTranscriptionManager
     batches = BatchTranscriptionManager(lambda: isolated)
     monkeypatch.setattr(main, 'batch_transcription_manager', batches)
+    from app.guest_ai_trial import TrialManager
+    guest_trials = TrialManager(lambda: isolated)
+    monkeypatch.setattr(main, 'guest_ai_manager', guest_trials)
     config.DOWNLOAD_DIR.mkdir()
     from app import account_auth, account_store, admin_store, membership
     from fastapi import Request
@@ -47,7 +50,7 @@ def tmp_downloads(tmp_path, monkeypatch, request):
     main.app.dependency_overrides[account_auth.current_user] = fake_current
     # Legacy ASR tests exercise provider/cost behaviour with no database. Dedicated membership/account
     # tests retain the real repository and a configured MySQL test database.
-    if request.module.__name__.split('.')[-1] not in ('test_membership', 'test_accounts', 'test_payments', 'test_limits', 'test_guest', 'test_admin'):
+    if request.module.__name__.split('.')[-1] not in ('test_membership', 'test_accounts', 'test_payments', 'test_limits', 'test_guest', 'test_admin', 'test_open_api', 'test_guest_ai_trial'):
         for name in ('seed', 'create_record', 'persist', 'complete', 'reserve', 'alias_key', 'save_alias', 'hide', 'cleanup', 'recover'):
             monkeypatch.setattr(membership, name, lambda *a, **k: None)
         monkeypatch.setattr(membership, 'record', lambda *a, **k: None)
@@ -59,6 +62,8 @@ def tmp_downloads(tmp_path, monkeypatch, request):
     main.app.dependency_overrides.pop(account_auth.require_user, None)
     main.app.dependency_overrides.pop(account_auth.current_user, None)
     batches.stopping.set()
+    guest_trials.stop()
+    guest_trials.pool.shutdown(wait=True, cancel_futures=True)
     batches.pool.shutdown(wait=True, cancel_futures=True)
     isolated.stop()
     isolated.pool.shutdown(wait=True, cancel_futures=True)

@@ -382,6 +382,7 @@ def set_user_status(actor, user_id, status, reason=''):
                     (status, disabled_at, stored_reason, now, user_id))
         if status == 'disabled':
             cur.execute('DELETE FROM sessions WHERE user_id=%s', (user_id,))
+            cur.execute('UPDATE open_api_keys SET revoked_at=%s WHERE user_id=%s AND revoked_at IS NULL', (now, user_id))
             cur.execute('DELETE FROM email_verifications WHERE user_id=%s', (user_id,))
             cur.execute('DELETE FROM password_resets WHERE user_id=%s', (user_id,))
         _audit(cur, actor, 'user.disable' if status == 'disabled' else 'user.enable', 'user', row,

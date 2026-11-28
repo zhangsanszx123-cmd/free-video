@@ -1,5 +1,32 @@
 # FreeVideo 方案设计文档
 
+## 2026-11-28 游客免费 AI 视频总结体验
+
+- `guest_ai_trial.py/guest_ai_api.py` 提供 `/api/guest/ai-summary`（`GET` 状态与最近任务、`POST` 异步提交、`GET /{trial_id}` 轮询），强制同源校验、`no-store` 及按 Cookie owner + IP 的创建（10/分钟）与读取限流。
+- `guest.trial_identity` 复用 `freevideo_guest` 签名 Cookie（无 Cookie 时签发），返回 `owner = sha256(cookie_subject)` 及排序后的 `[owner, sha256(ip_subject)]`；不写入 `guest_links`，不触发登录时长认领。
+- 表 `guest_ai_trials` 保存 `owner,raw_key,video_key,state,payload,transcription_id,expires_at`（结果仅匹配 `owner` 可读，保留 30 天）；表 `guest_ai_subjects` 保存 `subject,trial_id,state(available|reserved|used|uncertain)`，故意不建外键，结果过期清理后仍永久保留体验占用。
+- `_reserve` 按排序后的 `subject` 行锁串行化并发请求：同 `owner` 已有未失败（或已有部分总结）的同视频任务直接幂等复用；若任一 `subject != available` 抛 403 `GUEST_AI_LIMIT`；首次失败且无总结输出的重试复用上次已保存的 `info/transcript`，避免二次收费识别。
+- `TrialManager._run` 先解析并校验元数据时长 `<= 180s`（未知抛 `GUEST_AI_DURATION_UNKNOWN`，超长抛 `GUEST_AI_TOO_LONG`）；无缓存文稿时调用 `TranscriptionManager.submit('trial:'+owner, canonical, allow_asr=True, max_duration=180, on_accept=_bind)`，音轨下载后再次校验实际时长，通过 `on_accept` 在发送云请求前持久化 `transcription_id`。
+- 字幕/转写完成后先校验 SRT 末句时间轴 `<= 180s` 与压缩文稿长度 `<= 20000` 并落盘 `transcript`，再流式调用 `ai_learning.summarize_events`；首个非空 summary 增量落盘时即把 `guest_ai_subjects` 置为 `used`。空输出失败回退为 `available`；ASR 状态不明（`SUBMISSION_UNCERTAIN` 或账本 `submitting/submitted/unknown`）置为 `uncertain` 并冻结名额，重启 `recover()` 仅核对账本与本地已结算 SRT，绝不自动重发 ASR 或大模型请求。
+- 前端 `Home.vue` 在游客提交 AI 总结前先请求 `GET /api/guest/ai-summary` 落盘签名 Cookie 并检查状态，再 `POST` 创建或复用任务、每 2 秒轮询；挂载时被动恢复已有体验任务（若用户已编辑输入或切换动作则丢弃迟到响应）。遇到 `GUEST_AI_LIMIT / GUEST_AI_TOO_LONG / GUEST_AI_DURATION_UNKNOWN / GUEST_AI_TEXT_TOO_LONG` 时调用 `openAuth` 弹窗并在登录成功后原地续作账号总结。`GuestAiTrialPanel.vue` 复用安全 Markdown 渲染与平台时间戳外跳，隐藏脑图与追问并引导登录。验证见 [记录](./guest-ai-trial-verification.md)。
+
+## 2026-11-28 首页 AI 模式预览与提交鉴权
+
+- `Home.selectTab('ai')` 同步更新 activeView 与 actionVersion 后直接返回，不调用 aiAllowed、parse 或递增总结触发序号；身份检查和登录续作保留在 submitWithView 表单提交路径。
+- submitWithView 捕获动作版本，解析完成后只有版本、视图和输入仍匹配才触发总结，避免 AI 提交期间切换下载再切回 AI 恢复旧意图；每次新 parse 前清零 autoSummarizeSeq，避免 ResultCard 内 AI 面板重新挂载时沿用旧正值发起隐藏总结。
+- 既有共享链接 guest fallback、下载选项卡解析、登录后原地续作和服务端鉴权保持原有规则。相关浏览器验证见 [记录](./home-ai-login-verification.md)。
+
+## 2026-11-28 视频文案提取开放 API
+
+- `open_api_auth.py/open_api_store.py/open_api_api.py` 新增独立 Bearer 鉴权、MySQL 密钥摘要与 API 请求授权、版本化路由和独立 OpenAPI Schema；共享现有 TranscriptionManager、账号时长事务与供应商账本，不改变网页 Cookie 路由或套餐价格。详见 [方案](./open-api-plan.md) 与 [接入文档](./open-api.md)。
+- `open_api_keys` 持久化凭证摘要、密码快照摘要、名称、前缀、创建/使用/撤销时间；认证锁用户后复核密钥及账号状态，管理端创建复核网站会话。改密、找回重置、后台禁用在既有事务中撤销密钥；注销级联删除。
+- `open_api_requests` 使用账号级唯一幂等键、请求摘要、稳定外部 task_id、内部转写 ID、过期时间；账号行锁完成准入后释放 SQL 锁，再进入进程提交锁/管理器锁。TranscriptionManager.submit 新增内部可选 job_id/on_accept，在入队或返回复用任务之前写入授权映射；API 恢复仅核对映射，不重新提交。活动计数解析别名实际目标，避免别名 done 隐藏仍在运行的任务。
+- 开放状态映射为 queued/running/succeeded/failed/uncertain；未知提交优先映射 uncertain。OpenRoute 统一参数/业务/意外错误与 request_id、no-store、Retry-After；公开 schema 仅列四条开放业务路由和相关模型、Bearer 和幂等头，不混入后台接口。
+- Transcription.media 记录 source_url/video_url/cover_url/platform/duration_seconds，通过 membership.persist 与历史 JSON 一起保存、恢复；原始 yt-dlp 信息先转现有 summarize 结构，抖音沿用 direct.url。字幕与 ASR 分支均保存，别名查询可从 SQL 恢复目标。平台直链可为空且不承诺 30 天有效；查询不重新解析或重发 ASR。
+- 首版只开放固定平台的视频 ID 路径，分享短链逐跳验证域名/公网 DNS，规范化后交给原适配器；不能仅靠入口校验承诺第三方适配器全部出站行为安全。单进程与生产网络边界沿用现有部署要求。
+- 前端 ApiKeys.vue/ApiDocs.vue 复用现有设计与账号隔离；秘密只在组件内存中展示，离页清除，不存 localStorage。NavBar.links 在「批量提取」后、「定价」前显示公开的「API」，桌面与手机菜单共用配置，指向 /account/api/docs；页脚保留文档入口，个人中心及账号菜单提供管理入口。手机不显示遮挡操作的升级浮层。验证及验收见 [记录](./open-api-verification.md)。
+- 顶部导航链接禁止收缩和换行；768–1023px 的账号按钮保留头像与下拉箭头、收起昵称，避免新增入口与长昵称挤占导航。昵称仍在账号下拉内完整可见，1024px 起恢复按钮昵称展示。
+
 ## 2026-11-17 后台现有历史汇总
 
 - `GET /api/admin/history {page,search,status}` 复用后台 require_admin 与 no-store，调用 `membership.history(None, ...)`；仅内部后台代码可传 None 汇总，前台接口仍从 require_user 取得实际用户 ID，不能由请求指定任意拥有者。

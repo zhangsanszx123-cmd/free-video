@@ -197,6 +197,7 @@ def update_password(user_id: int, password_hash: str):
         cur.execute("UPDATE users SET password_hash = %s, password_changed_at = %s, updated_at = %s WHERE id = %s",
                     (password_hash, now, now, user_id))
         cur.execute("DELETE FROM sessions WHERE user_id = %s", (user_id,))
+        cur.execute('UPDATE open_api_keys SET revoked_at=%s WHERE user_id=%s AND revoked_at IS NULL', (now, user_id))
 
 
 def delete_user(user_id: int):

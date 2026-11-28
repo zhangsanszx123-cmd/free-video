@@ -138,6 +138,7 @@ class FrontendFollowupUI(unittest.TestCase):
                         if path == '/':
                             self.page.locator('#mode-tab-ai').click()
                             expect(frame).to_be_visible()
+                            self.page.get_by_role('button', name='AI 总结', exact=True).click()
                         else:
                             self.page.get_by_role('button', name='一键 AI 总结', exact=True).click()
                         self.page.locator('button[data-seek="90"]').first.click()

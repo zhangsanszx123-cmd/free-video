@@ -155,6 +155,8 @@ class Transcription:
     title: str = "视频文稿"
     result: dict | None = None
     reuse_id: str | None = None
+    media: dict | None = None
+    max_duration: int | None = None  # optional server policy, never taken from an HTTP request
 
     @property
     def directory(self):
@@ -162,7 +164,7 @@ class Transcription:
 
     def public(self):
         return {k: getattr(self, k) for k in ("id", "status", "stage", "message", "created_at", "finished_at",
-                                             "error", "error_code", "retryable", "title", "result")}
+                                             "error", "error_code", "retryable", "title", "result", "media")}
 
 
 class TranscriptionManager:
@@ -176,7 +178,7 @@ class TranscriptionManager:
         self._maintenance = None
         self.recovery_ready = False
 
-    def submit(self, owner, url, lang=None, allow_asr=False):
+    def submit(self, owner, url, lang=None, allow_asr=False, *, job_id=None, on_accept=None, max_duration=None):
         url = downloader.extract_url(url)
         # Canonical URL from /api/parse is used by the UI. Alternate share URLs are
         # additionally canonicalized before any paid submission, inside _run.
@@ -185,23 +187,37 @@ class TranscriptionManager:
             existing = self.jobs.get(self.keys.get(key))
             if existing and (existing.status not in TERMINAL or existing.status == "done" or not existing.retryable):
                 if existing.reuse_id and existing.reuse_id in self.jobs:
-                    return self.jobs[existing.reuse_id]
+                    existing = self.jobs[existing.reuse_id]
+                if on_accept:
+                    on_accept(existing)
                 return existing
             uid = membership.user_id(owner)
             if uid is not None:
                 saved = membership.record(uid, fingerprint=key)
                 if saved:
-                    return self._restore(saved, owner)
+                    existing = self._restore(saved, owner)
+                    if on_accept:
+                        on_accept(existing)
+                    return existing
             active = sum(j.status not in TERMINAL for j in self.jobs.values())
             if active >= config.ASR_WORKERS + config.ASR_MAX_QUEUE:
                 raise TranscriptionError("QUEUE_FULL", "转写任务已满，请稍后重试", True, 429)
             if allow_asr and not self.recovery_ready:
                 raise TranscriptionError("RECOVERING", "识别服务正在核对未决任务，请稍后重试", True, 503)
-            job = Transcription(uuid.uuid4().hex, owner, key, url, lang, allow_asr)
+            job = Transcription(job_id or uuid.uuid4().hex, owner, key, url, lang, allow_asr)
+            job.max_duration = max_duration
             membership.create_record(job)
+            if on_accept:
+                on_accept(job)
             self.jobs[job.id] = job
             self.keys[key] = job.id
-            self.pool.submit(self._run, job)
+            try:
+                self.pool.submit(self._run, job)
+            except RuntimeError:
+                self._update(job, status='error', stage='error', error='服务正在停止，请稍后重试',
+                             error_code='INTERRUPTED', retryable=True, finished_at=time.time())
+                membership.persist(job)
+                raise TranscriptionError('RECOVERING', '服务正在停止，请稍后重试', True, 503) from None
             return job
 
     @staticmethod
@@ -249,6 +265,10 @@ class TranscriptionManager:
                 raise TranscriptionError("NOT_FOUND", "任务不存在或已过期", status=404)
             if job.reuse_id:
                 reused = self.jobs.get(job.reuse_id)
+                if not reused and uid is not None:
+                    saved = membership.record(uid, job_id=job.reuse_id)
+                    if saved:
+                        reused = self._restore(saved, owner)
                 if not reused or reused.owner != owner:
                     raise TranscriptionError("NOT_FOUND", "任务不存在或已过期", status=404)
                 return reused
@@ -310,7 +330,7 @@ class TranscriptionManager:
                 self.keys[canonical_key] = job.id
                 membership.alias_key(job, canonical_key)
             asr.require_enabled()
-            limit = max_seconds(uid)
+            limit = min(max_seconds(uid), job.max_duration) if job.max_duration is not None else max_seconds(uid)
             if info.get("duration") and info["duration"] > limit:
                 raise too_long(limit)
             self._update(job, title=info.get("title") or job.title, stage="audio", message="正在获取视频音轨…")

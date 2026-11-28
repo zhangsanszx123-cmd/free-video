@@ -21,6 +21,9 @@ async function request(path, options = {}) {
 }
 
 export const api = {
+  guestAiStatus: (signal) => request('/api/guest/ai-summary', { signal, cache: 'no-store' }),
+  guestAiSummary: (url, signal) => request('/api/guest/ai-summary', { method: 'POST', body: JSON.stringify({ url }), signal, cache: 'no-store' }),
+  guestAiTask: (id, signal) => request(`/api/guest/ai-summary/${encodeURIComponent(id)}`, { signal, cache: 'no-store' }),
   health: (signal) => request('/api/health', { signal }),
   parse: (url, signal) => request('/api/parse', { method: 'POST', body: JSON.stringify({ url }), signal }),
   download: (body) => request('/api/download', { method: 'POST', body: JSON.stringify(body) }),

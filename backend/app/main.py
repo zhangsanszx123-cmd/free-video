@@ -19,6 +19,7 @@ from .downloader import VideoError
 from .jobs import JobManager
 from .subtitles import to_plain_text
 from .batch_transcriptions import BatchTranscriptionManager
+from .guest_ai_trial import TrialManager
 
 logging.basicConfig(level=logging.INFO)
 # HTTP client INFO logs include signed result URLs. Never expose these in ordinary logs.
@@ -29,6 +30,7 @@ manager = JobManager()
 transcription_manager = TranscriptionManager()
 batch_transcription_manager = BatchTranscriptionManager(lambda: transcription_manager)
 payment_reconciler = payments.Reconciler()
+guest_ai_manager = TrialManager(lambda: transcription_manager)
 
 
 @asynccontextmanager
@@ -46,10 +48,20 @@ async def lifespan(_: FastAPI):
         logging.warning("ZPAY_MOCK=true: payments use the local fake cashier, no real money is collected")
     manager.start_cleaner()
     transcription_manager.start()
+    try:
+        guest_ai_manager.start()
+    except (AccountError, TranscriptionError):
+        logging.warning('Guest AI trial recovery unavailable; new trial requests will retry database access')
+    try:
+        from .open_api_store import recover as recover_api_requests
+        recover_api_requests()
+    except AccountError:
+        logging.warning('Open API request recovery unavailable; database access will be retried on restart')
     batch_transcription_manager.stopping.clear()
     payment_reconciler.start()
     yield
     payment_reconciler.stop()
+    guest_ai_manager.stop()
     batch_transcription_manager.stopping.set()
     transcription_manager.stop()
 
@@ -365,6 +377,18 @@ from .payment_api import router as payment_router  # noqa: E402
 from .zpay_mock import router as zpay_mock_router  # noqa: E402
 app.include_router(payment_router)
 app.include_router(zpay_mock_router)  # every endpoint 404s unless ZPAY_MOCK=true outside production
+
+from .open_api_api import create_router, account_router as api_keys_router, public_schema  # noqa: E402
+open_router = create_router(lambda: transcription_manager)
+app.include_router(open_router)
+app.include_router(api_keys_router)
+from .guest_ai_api import create_router as create_guest_ai_router  # noqa: E402
+app.include_router(create_guest_ai_router(lambda: guest_ai_manager))
+
+
+@app.get('/api/openapi.json', include_in_schema=False)
+def open_api_schema():
+    return JSONResponse(public_schema(open_router), headers={'Cache-Control': 'no-store'})
 
 
 if config.FRONTEND_DIST.exists():

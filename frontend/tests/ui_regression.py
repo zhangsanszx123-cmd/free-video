@@ -310,6 +310,165 @@ class UIRegression(unittest.TestCase):
         self.page.get_by_role('button', name='登录 / 注册').click()
         expect(self.page.get_by_role('dialog')).to_be_visible()
 
+    def mock_home_ai_actions(self):
+        calls = dict(parse=[], summary=[], transcription=[])
+
+        def parse(route):
+            url = route.request.post_data_json['url']
+            calls['parse'].append(url)
+            route.fulfill(json=dict(INFO, url=url))
+
+        def summarize(route):
+            calls['summary'].append(route.request.post_data_json)
+            route.fulfill(body='event: delta\ndata: "Mock home summary"\n\nevent: done\ndata: true\n\n',
+                          content_type='text/event-stream')
+
+        def transcribe(route):
+            calls['transcription'].append(route.request.url)
+            route.fulfill(json=dict(text='Mock transcript', timed_text='[00:01] Mock transcript', cues=[]))
+
+        self.page.route('**/api/parse', parse)
+        self.page.route('**/api/learn/summary', summarize)
+        self.page.route('**/api/transcri**', transcribe)
+        return calls
+
+    def test_guest_home_ai_tab_only_previews_mode(self):
+        self.page.route('**/api/auth/me', lambda r: r.fulfill(json=dict(user=None)))
+        calls = self.mock_home_ai_actions()
+        for width in (1440, 390):
+            for state in ('empty', 'populated', 'existing_result'):
+                with self.subTest(width=width, state=state):
+                    calls['parse'].clear()
+                    calls['summary'].clear()
+                    calls['transcription'].clear()
+                    self.page.set_viewport_size(dict(width=width, height=1000))
+                    self.page.goto(BASE)
+                    url = self.page.get_by_role('textbox', name='视频链接或分享口令')
+                    if state != 'empty':
+                        url.fill(INFO['url'])
+                    if state == 'existing_result':
+                        self.page.get_by_role('button', name='立即解析', exact=True).click()
+                        expect(self.page.get_by_role('heading', name='提取结果', exact=True)).to_be_visible()
+                        self.assertEqual(calls['parse'], [INFO['url']])
+                    before = {key: list(value) for key, value in calls.items()}
+                    ai_tab = self.page.get_by_role('tab', name='AI 视频总结', exact=True)
+                    ai_tab.click()
+                    expect(ai_tab).to_have_attribute('aria-selected', 'true')
+                    expect(self.page.get_by_role('button', name='AI 总结', exact=True)).to_be_visible()
+                    expect(url).to_have_value('' if state == 'empty' else INFO['url'])
+                    self.page.wait_for_timeout(150)
+                    expect(self.page.locator('dialog[open]')).to_have_count(0)
+                    self.assertEqual(calls, before, 'Selecting the AI tab must only preview the mode')
+
+    def test_exhausted_guest_home_ai_primary_submit_resumes_once_after_login(self):
+        self.page.route('**/api/auth/me', lambda r: r.fulfill(json=dict(user=None)))
+        user = dict(id=1, username='tester', nickname='Tester', created_at='2026-11-10T00:00:00Z')
+        self.page.route('**/api/auth/login', lambda r: r.fulfill(json=dict(user=user)))
+        self.page.route('**/api/account/membership', lambda r: r.fulfill(json=self.MEMBER))
+        self.page.route('**/api/guest/ai-summary', lambda r: r.fulfill(
+            status=403 if r.request.method == 'POST' else 200,
+            json=dict(detail='游客 AI 体验已用完，请登录后继续', code='GUEST_AI_LIMIT') if r.request.method == 'POST' else dict(available=False, max_seconds=180, task=None)))
+        calls = self.mock_home_ai_actions()
+        self.page.goto(BASE)
+        self.page.get_by_role('textbox', name='视频链接或分享口令').fill(INFO['url'])
+        self.page.get_by_role('tab', name='AI 视频总结', exact=True).click()
+        expect(self.page.locator('dialog[open]')).to_have_count(0)
+        self.page.get_by_role('button', name='AI 总结', exact=True).click()
+        dialog = self.page.get_by_role('dialog')
+        expect(dialog).to_be_visible()
+        expect(dialog).to_contain_text('游客 AI 体验已用完，请登录后继续')
+        self.assertEqual(calls, dict(parse=[], summary=[], transcription=[]))
+        dialog.get_by_label('邮箱', exact=True).fill('tester@example.com')
+        dialog.get_by_label('密码', exact=True).fill('password123')
+        dialog.get_by_role('button', name='登录', exact=True).click()
+        expect(dialog).not_to_be_visible()
+        expect(self.page.get_by_text('Mock home summary', exact=True)).to_be_visible()
+        self.page.wait_for_timeout(150)
+        self.assertEqual(calls['parse'], [INFO['url']])
+        self.assertEqual([body['url'] for body in calls['summary']], [INFO['url']])
+        self.assertEqual(calls['transcription'], [])
+        expect(self.page.get_by_role('tab', name='AI 视频总结', exact=True)).to_have_attribute('aria-selected', 'true')
+        self.assertEqual(self.page.url, BASE + '/')
+
+    def test_home_ai_pending_auth_is_discarded_after_tab_or_input_change(self):
+        calls = self.mock_home_ai_actions()
+        for action in ('tab', 'edit'):
+            for logged_in in (False, True):
+                with self.subTest(action=action, logged_in=logged_in):
+                    pending = []
+                    for value in calls.values():
+                        value.clear()
+                    self.page.route('**/api/auth/me', lambda r: pending.append(r))
+                    self.page.goto(BASE)
+                    url = self.page.get_by_role('textbox', name='视频链接或分享口令')
+                    url.fill(INFO['url'])
+                    ai_tab = self.page.get_by_role('tab', name='AI 视频总结', exact=True)
+                    ai_tab.click()
+                    expect(ai_tab).to_have_attribute('aria-selected', 'true')
+                    self.page.get_by_role('button', name='AI 总结', exact=True).click()
+                    self.assertTrue(pending)
+                    if action == 'tab':
+                        # The download tab keeps its existing parse behavior; returning to AI is only a preview.
+                        self.page.get_by_role('tab', name='素材与文案下载', exact=True).click()
+                        ai_tab.click()
+                    else:
+                        url.fill('https://example.com/changed')
+                    user = dict(id=1, username='tester', nickname='Tester', created_at='2026-11-10T00:00:00Z') if logged_in else None
+                    for request in pending:
+                        request.fulfill(json=dict(user=user))
+                    self.page.wait_for_timeout(150)
+                    expect(self.page.locator('dialog[open]')).to_have_count(0)
+                    expect(ai_tab).to_have_attribute('aria-selected', 'true')
+                    self.assertEqual(calls['parse'], [INFO['url']] if action == 'tab' else [])
+                    self.assertEqual(calls['summary'], [])
+                    self.assertEqual(calls['transcription'], [])
+                    self.page.unroute('**/api/auth/me')
+
+    def test_home_ai_tab_round_trip_during_parse_does_not_start_summary(self):
+        calls = self.mock_home_ai_actions()
+        pending = []
+        self.page.route('**/api/parse', lambda r: pending.append(r))
+        self.page.goto(BASE)
+        self.page.get_by_role('textbox', name='视频链接或分享口令').fill(INFO['url'])
+        ai_tab = self.page.get_by_role('tab', name='AI 视频总结', exact=True)
+        ai_tab.click()
+        self.page.get_by_role('button', name='AI 总结', exact=True).click()
+        expect(self.page.get_by_role('button', name='解析中…', exact=True)).to_be_disabled()
+        self.assertEqual(len(pending), 1)
+        self.page.get_by_role('tab', name='素材与文案下载', exact=True).click()
+        ai_tab.click()
+        pending[0].fulfill(json=INFO)
+        expect(self.page.get_by_role('button', name='一键 AI 总结', exact=True)).to_be_visible()
+        self.page.wait_for_timeout(150)
+        self.assertEqual(calls['summary'], [])
+        self.assertEqual(calls['transcription'], [])
+        expect(ai_tab).to_have_attribute('aria-selected', 'true')
+        expect(self.page.locator('dialog[open]')).to_have_count(0)
+
+    def test_home_download_parse_does_not_reuse_previous_ai_trigger(self):
+        calls = self.mock_home_ai_actions()
+        self.page.goto(BASE)
+        url = self.page.get_by_role('textbox', name='视频链接或分享口令')
+        url.fill(INFO['url'])
+        ai_tab = self.page.get_by_role('tab', name='AI 视频总结', exact=True)
+        ai_tab.click()
+        self.page.get_by_role('button', name='AI 总结', exact=True).click()
+        expect(self.page.get_by_text('Mock home summary', exact=True)).to_be_visible()
+        self.assertEqual(len(calls['summary']), 1)
+        self.page.get_by_role('tab', name='素材与文案下载', exact=True).click()
+        changed_url = 'https://example.com/another-video'
+        url.fill(changed_url)
+        self.page.get_by_role('tab', name='素材与文案下载', exact=True).click()
+        expect(self.page.get_by_role('button', name='下载高清视频', exact=True)).to_be_visible()
+        self.page.wait_for_timeout(150)
+        self.assertEqual(calls['parse'], [INFO['url'], changed_url])
+        self.assertEqual(len(calls['summary']), 1, 'A new download parse must not replay the old AI trigger')
+        ai_tab.click()
+        expect(self.page.get_by_role('button', name='一键 AI 总结', exact=True)).to_be_visible()
+        self.page.wait_for_timeout(150)
+        self.assertEqual(len(calls['summary']), 1, 'Previewing the newly parsed video must not start a summary')
+        self.assertEqual(calls['transcription'], [])
+
     def test_guest_limit_opens_login_dialog(self):
         self.page.route('**/api/auth/me', lambda r: r.fulfill(json=dict(user=None)))
         self.page.route('**/api/parse', lambda r: r.fulfill(status=403, json=dict(

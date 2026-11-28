@@ -234,6 +234,13 @@ def persist(job, info=None):
     uid = user_id(job.owner)
     if uid is None:
         return
+    if info:
+        from . import downloader
+        parsed = info if 'direct' in info else downloader.summarize(info)
+        job.media = dict(source_url=parsed.get('url') or job.url,
+                         video_url=(parsed.get('direct') or {}).get('url'),
+                         cover_url=parsed.get('thumbnail'), platform=parsed.get('platform'),
+                         duration_seconds=parsed.get('duration'))
     with store._cursor() as cur:
         cur.execute('UPDATE transcription_records SET payload=%s,status=%s,title=%s WHERE id=%s AND user_id=%s',
                     (json.dumps(job.public(), ensure_ascii=False), job.status, job.title[:255], job.id, uid))
@@ -317,6 +324,7 @@ def hide(uid, job_id):
 
 def cleanup():
     with store._cursor() as cur:
+        cur.execute('DELETE FROM open_api_requests WHERE expires_at<=%s', (store.utcnow(),))
         cur.execute('DELETE FROM transcription_records WHERE expires_at<=%s', (store.utcnow(),))
 
 
